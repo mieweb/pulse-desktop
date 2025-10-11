@@ -1,0 +1,103 @@
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 1rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+}
+
+.status-indicator {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.status-idle {
+  background-color: #f3f4f6;
+  color: #6b7280;
+}
+
+.status-idle .status-indicator {
+  background-color: #9ca3af;
+  animation: none;
+}
+
+.status-recording {
+  background-color: #fee2e2;
+  color: #dc2626;
+}
+
+.status-recording .status-indicator {
+  background-color: #ef4444;
+}
+
+.status-saving {
+  background-color: #fef3c7;
+  color: #d97706;
+}
+
+.status-saving .status-indicator {
+  background-color: #f59e0b;
+}
+
+.status-error {
+  background-color: #fecaca;
+  color: #991b1b;
+}
+
+.status-error .status-indicator {
+  background-color: #dc2626;
+  animation: none;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Dark mode improvements */
+@media (prefers-color-scheme: dark) {
+  .status-idle {
+    background-color: #374151;
+    color: #d1d5db;
+  }
+
+  .status-idle .status-indicator {
+    background-color: #6b7280;
+  }
+
+  .status-recording {
+    background-color: #7f1d1d;
+    color: #fca5a5;
+  }
+
+  .status-recording .status-indicator {
+    background-color: #ef4444;
+  }
+
+  .status-saving {
+    background-color: #78350f;
+    color: #fcd34d;
+  }
+
+  .status-saving .status-indicator {
+    background-color: #f59e0b;
+  }
+
+  .status-error {
+    background-color: #7f1d1d;
+    color: #fecaca;
+  }
+
+  .status-error .status-indicator {
+    background-color: #ef4444;
+  }
+}
