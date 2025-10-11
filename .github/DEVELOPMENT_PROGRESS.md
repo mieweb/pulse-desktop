@@ -143,10 +143,10 @@ app.global_shortcut().on_shortcut(shortcut, |app, _, event| {
 - `src-tauri/src/state.rs` - Recording state tracking
 
 **Testing needed:**
-- [ ] Test with different foreground applications (Chrome, VS Code, Finder, etc.)
-- [ ] Verify no multiple recordings from key repeat
-- [ ] Test rapid press/release cycles
-- [ ] Verify status updates in UI
+- [X] Test with different foreground applications (Chrome, VS Code, Finder, etc.)
+- [X] Verify no multiple recordings from key repeat
+- [X] Test rapid press/release cycles
+- [X] Verify status updates in UI
 
 **Current behavior:**
 - Press Cmd+Shift+R: Console logs "🎬 Starting recording...", emits "recording" status
