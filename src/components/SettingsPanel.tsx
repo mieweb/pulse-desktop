@@ -6,12 +6,14 @@ import './SettingsPanel.css';
 interface SettingsPanelProps {
   settings: AppSettings;
   onSettingsChange: (settings: Partial<AppSettings>) => void;
+  onCaptureModeChange?: (mode: CaptureMode) => void;
   clipCount: number;
 }
 
 export function SettingsPanel({
   settings,
   onSettingsChange,
+  onCaptureModeChange,
   clipCount,
 }: SettingsPanelProps) {
   const handleSelectFolder = async () => {
@@ -45,6 +47,9 @@ export function SettingsPanel({
 
   const handleCaptureModeChange = (mode: CaptureMode) => {
     onSettingsChange({ captureMode: mode });
+    if (onCaptureModeChange) {
+      onCaptureModeChange(mode);
+    }
   };
 
   const handleAspectChange = (aspect: AspectRatio) => {

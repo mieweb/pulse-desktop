@@ -30,8 +30,8 @@ impl ScreenCapturer {
         Ok(true)
     }
 
-    /// Start recording the screen
-    pub async fn start_recording(&mut self) -> Result<(), String> {
+    /// Start recording the screen with optional region
+    pub async fn start_recording(&mut self, region: Option<(u32, u32, u32, u32)>) -> Result<(), String> {
         if self.is_recording {
             return Err("Already recording".to_string());
         }
@@ -42,6 +42,18 @@ impl ScreenCapturer {
         let output_path = self.get_next_output_path();
         println!("💾 Output path: {:?}", output_path);
         
+        // Convert region tuple to CaptureRegion if provided
+        let capture_region = region.map(|(x, y, width, height)| {
+            screen_capture::CaptureRegion { x, y, width, height }
+        });
+        
+        if let Some(ref region) = capture_region {
+            println!("📏 Using capture region: {}×{} at ({}, {})", 
+                     region.width, region.height, region.x, region.y);
+        } else {
+            println!("🖥️ Using full screen capture");
+        }
+        
         // Create recording configuration
         let config = RecordingConfig {
             output_path: output_path.clone(),
@@ -51,7 +63,7 @@ impl ScreenCapturer {
             capture_microphone: self.mic_enabled,  // Use setting from AppState
             microphone_device_id: None,  // Use default microphone
             display_id: Some(0), // Primary display
-            region: None,  // Full screen
+            region: capture_region,  // Use provided region or None for full screen
         };
 
         // Create recorder

@@ -23,6 +23,11 @@ pub fn run() {
             commands::stop_recording,
             commands::open_folder,
             commands::open_file,
+            commands::set_capture_region,
+            commands::clear_capture_region,
+            commands::get_capture_region,
+            commands::open_region_selector,
+            commands::close_region_selector,
         ])
         .setup(|app| {
             commands::setup_global_shortcut(&app.handle())?;

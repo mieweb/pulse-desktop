@@ -1,5 +1,6 @@
 use tauri::{State, AppHandle, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
+use tauri::utils::config::Color;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use crate::state::AppState;
@@ -65,12 +66,18 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                             *mic
                         };
                         
+                        // Get capture region from state
+                        let capture_region = {
+                            let region = state.capture_region.lock().unwrap();
+                            *region
+                        };
+                        
                         // Create capturer
                         let mut capturer = ScreenCapturer::new(output_folder, mic_enabled);
                         
                         // Start recording (blocking call)
                         let runtime = tokio::runtime::Runtime::new().unwrap();
-                        match runtime.block_on(capturer.start_recording()) {
+                        match runtime.block_on(capturer.start_recording(capture_region)) {
                             Ok(_) => {
                                 println!("✅ Screen capture started");
                                 // Store capturer in state
@@ -287,6 +294,88 @@ pub async fn open_file(path: String) -> Result<(), String> {
             .arg(&path)
             .spawn()
             .map_err(|e| format!("Failed to open file: {}", e))?;
+    }
+    
+    Ok(())
+}
+
+/// Set capture region for recording
+#[tauri::command]
+pub async fn set_capture_region(
+    state: State<'_, AppState>,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    let mut region = state.capture_region.lock().unwrap();
+    *region = Some((x, y, width, height));
+    println!("📏 Capture region set: {}x{} at ({}, {})", width, height, x, y);
+    Ok(())
+}
+
+/// Clear capture region (return to full screen)
+#[tauri::command]
+pub async fn clear_capture_region(state: State<'_, AppState>) -> Result<(), String> {
+    let mut region = state.capture_region.lock().unwrap();
+    *region = None;
+    println!("🖥️ Capture region cleared - using full screen");
+    Ok(())
+}
+
+/// Get current capture region
+#[tauri::command]
+pub async fn get_capture_region(
+    state: State<'_, AppState>,
+) -> Result<Option<(u32, u32, u32, u32)>, String> {
+    let region = state.capture_region.lock().unwrap();
+    Ok(*region)
+}
+
+/// Open region selector window covering entire screen
+#[tauri::command]
+pub async fn open_region_selector(
+    app: AppHandle,
+    aspect_ratio: String,
+    scale_to_preset: bool,
+) -> Result<(), String> {
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+    
+    println!("📏 Opening region selector overlay");
+    
+    // Create full-screen overlay window using the main app with a special query parameter
+    let url = format!("{}?mode=region-selector&aspectRatio={}&scaleToPreset={}", 
+                     "http://localhost:1420", aspect_ratio, scale_to_preset);
+    
+    let _window = WebviewWindowBuilder::new(
+        &app,
+        "region_selector",
+        WebviewUrl::External(url.parse().unwrap())
+    )
+    .title("Select Capture Region")
+    .resizable(false)
+    .maximized(true)
+    .decorations(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .background_color((0, 0, 0, 0).into())
+    .focused(true)
+    .build()
+    .map_err(|e| format!("Failed to create region selector window: {}", e))?;
+    
+    Ok(())
+}
+
+/// Close the region selector window
+#[tauri::command]
+pub async fn close_region_selector(app: AppHandle) -> Result<(), String> {
+    println!("🔒 Closing region selector window");
+    
+    if let Some(window) = app.get_webview_window("region_selector") {
+        window.close().map_err(|e| format!("Failed to close region selector window: {}", e))?;
+        println!("✅ Region selector window closed");
+    } else {
+        println!("⚠️ Region selector window not found");
     }
     
     Ok(())
