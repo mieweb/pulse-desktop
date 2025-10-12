@@ -46,6 +46,8 @@ impl ScreenCapturer {
             fps: 30,
             quality: 80,
             capture_cursor: true,
+            capture_microphone: true,  // Enable microphone capture
+            microphone_device_id: None,  // Use default microphone
             display_id: Some(0), // Primary display
             region: None,  // Full screen
         };

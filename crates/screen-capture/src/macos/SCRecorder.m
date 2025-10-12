@@ -12,17 +12,22 @@
 #import <CoreVideo/CoreVideo.h>
 #import "SCRecorder.h"
 
-@interface SCRecorderImpl : NSObject <SCStreamOutput, SCStreamDelegate>
+@interface SCRecorderImpl : NSObject <SCStreamOutput, SCStreamDelegate, AVCaptureAudioDataOutputSampleBufferDelegate>
 
 @property (nonatomic, strong) SCStream *stream;
 @property (nonatomic, strong) AVAssetWriter *assetWriter;
 @property (nonatomic, strong) AVAssetWriterInput *videoInput;
+@property (nonatomic, strong) AVAssetWriterInput *audioInput;
+@property (nonatomic, strong) AVCaptureSession *audioSession;
 @property (nonatomic, strong) NSString *outputPath;
 @property (nonatomic, strong) NSString *lastError;
 @property (nonatomic, assign) NSTimeInterval startTime;
 @property (nonatomic, assign) CMTime firstFrameTime;
+@property (nonatomic, assign) CMTime firstAudioTime;
 @property (nonatomic, assign) BOOL hasFirstFrame;
+@property (nonatomic, assign) BOOL hasFirstAudio;
 @property (nonatomic, assign) BOOL isRecording;
+@property (nonatomic, assign) BOOL captureAudio;
 @property (nonatomic, assign) uint32_t fps;
 @property (nonatomic, assign) uint32_t width;
 @property (nonatomic, assign) uint32_t height;
@@ -32,7 +37,8 @@
                         height:(uint32_t)h
                            fps:(uint32_t)f
                        quality:(uint32_t)q
-                     displayID:(uint32_t)displayID;
+                     displayID:(uint32_t)displayID
+                  captureAudio:(BOOL)captureAudio;
 - (int32_t)start;
 - (int32_t)stop;
 - (double)duration;
@@ -46,16 +52,20 @@
                         height:(uint32_t)h
                            fps:(uint32_t)f
                        quality:(uint32_t)q
-                     displayID:(uint32_t)displayID {
+                     displayID:(uint32_t)displayID
+                  captureAudio:(BOOL)captureAudio {
     self = [super init];
     if (self) {
         _outputPath = [NSString stringWithUTF8String:path];
         _width = w;
         _height = h;
         _fps = f;
+        _captureAudio = captureAudio;
         _isRecording = NO;
         _hasFirstFrame = NO;
+        _hasFirstAudio = NO;
         _firstFrameTime = kCMTimeZero;
+        _firstAudioTime = kCMTimeZero;
         _lastError = nil;
         
         // Initialize asset writer
@@ -90,6 +100,27 @@
         } else {
             _lastError = @"Cannot add video input to asset writer";
             return nil;
+        }
+        
+        // Add audio input if requested
+        if (captureAudio) {
+            NSDictionary *audioSettings = @{
+                AVFormatIDKey: @(kAudioFormatMPEG4AAC),
+                AVSampleRateKey: @(48000),
+                AVNumberOfChannelsKey: @(1),  // Mono
+                AVEncoderBitRateKey: @(128000)  // 128 kbps
+            };
+            
+            _audioInput = [AVAssetWriterInput assetWriterInputWithMediaType:AVMediaTypeAudio
+                                                             outputSettings:audioSettings];
+            _audioInput.expectsMediaDataInRealTime = YES;
+            
+            if ([_assetWriter canAddInput:_audioInput]) {
+                [_assetWriter addInput:_audioInput];
+            } else {
+                _lastError = @"Cannot add audio input to asset writer";
+                return nil;
+            }
         }
     }
     return self;
@@ -166,6 +197,13 @@
         // Reset first frame tracking
         weakSelf.hasFirstFrame = NO;
         weakSelf.firstFrameTime = kCMTimeZero;
+        weakSelf.hasFirstAudio = NO;
+        weakSelf.firstAudioTime = kCMTimeZero;
+        
+        // Setup audio capture if requested
+        if (weakSelf.captureAudio) {
+            [weakSelf setupAudioCapture];
+        }
         
         // Start capture
         [weakSelf.stream startCaptureWithCompletionHandler:^(NSError *error) {
@@ -204,6 +242,12 @@
         
         // Finish writing
         [weakSelf.videoInput markAsFinished];
+        if (weakSelf.audioInput) {
+            [weakSelf.audioInput markAsFinished];
+        }
+        if (weakSelf.audioSession) {
+            [weakSelf.audioSession stopRunning];
+        }
         [weakSelf.assetWriter finishWritingWithCompletionHandler:^{
             if (weakSelf.assetWriter.status == AVAssetWriterStatusFailed) {
                 weakSelf.lastError = [NSString stringWithFormat:@"Asset writer failed: %@", weakSelf.assetWriter.error];
@@ -223,6 +267,86 @@
         return [NSDate timeIntervalSinceReferenceDate] - _startTime;
     }
     return 0.0;
+}
+
+- (void)setupAudioCapture {
+    _audioSession = [[AVCaptureSession alloc] init];
+    
+    // Get default microphone
+    AVCaptureDevice *audioDevice = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeAudio];
+    if (!audioDevice) {
+        NSLog(@"⚠️ No microphone found, continuing without audio");
+        return;
+    }
+    
+    NSError *error = nil;
+    AVCaptureDeviceInput *audioInput = [AVCaptureDeviceInput deviceInputWithDevice:audioDevice error:&error];
+    if (error || !audioInput) {
+        NSLog(@"⚠️ Failed to create audio input: %@", error.localizedDescription);
+        return;
+    }
+    
+    if ([_audioSession canAddInput:audioInput]) {
+        [_audioSession addInput:audioInput];
+    } else {
+        NSLog(@"⚠️ Cannot add audio input to session");
+        return;
+    }
+    
+    // Setup audio output
+    AVCaptureAudioDataOutput *audioOutput = [[AVCaptureAudioDataOutput alloc] init];
+    dispatch_queue_t audioQueue = dispatch_queue_create("com.pulse.audioQueue", DISPATCH_QUEUE_SERIAL);
+    [audioOutput setSampleBufferDelegate:self queue:audioQueue];
+    
+    if ([_audioSession canAddOutput:audioOutput]) {
+        [_audioSession addOutput:audioOutput];
+    } else {
+        NSLog(@"⚠️ Cannot add audio output to session");
+        return;
+    }
+    
+    // Start audio session
+    [_audioSession startRunning];
+    NSLog(@"🎤 Audio capture started");
+}
+
+// AVCaptureAudioDataOutputSampleBufferDelegate method
+- (void)captureOutput:(AVCaptureOutput *)output didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer fromConnection:(AVCaptureConnection *)connection {
+    if (!_isRecording || !_audioInput) return;
+    
+    if (_audioInput.readyForMoreMediaData) {
+        // Get the original presentation timestamp
+        CMTime originalTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
+        
+        // On first audio frame, record the start time offset
+        if (!_hasFirstAudio) {
+            _firstAudioTime = originalTime;
+            _hasFirstAudio = YES;
+        }
+        
+        // Calculate adjusted time (relative to first audio frame = zero)
+        CMTime adjustedTime = CMTimeSubtract(originalTime, _firstAudioTime);
+        
+        // Create new sample buffer with adjusted timestamp
+        CMSampleBufferRef adjustedBuffer = NULL;
+        CMSampleTimingInfo timingInfo;
+        timingInfo.presentationTimeStamp = adjustedTime;
+        timingInfo.decodeTimeStamp = kCMTimeInvalid;
+        timingInfo.duration = CMSampleBufferGetDuration(sampleBuffer);
+        
+        OSStatus status = CMSampleBufferCreateCopyWithNewTiming(
+            kCFAllocatorDefault,
+            sampleBuffer,
+            1,
+            &timingInfo,
+            &adjustedBuffer
+        );
+        
+        if (status == noErr && adjustedBuffer != NULL) {
+            [_audioInput appendSampleBuffer:adjustedBuffer];
+            CFRelease(adjustedBuffer);
+        }
+    }
 }
 
 // SCStreamOutput delegate method
@@ -278,7 +402,8 @@ SCRecorder* sc_recorder_create(
     uint32_t height,
     uint32_t fps,
     uint32_t quality,
-    uint32_t display_id
+    uint32_t display_id,
+    bool capture_audio
 ) {
     @autoreleasepool {
         SCRecorderImpl *impl = [[SCRecorderImpl alloc] initWithConfig:output_path
@@ -286,7 +411,8 @@ SCRecorder* sc_recorder_create(
                                                                 height:height
                                                                    fps:fps
                                                                quality:quality
-                                                             displayID:display_id];
+                                                             displayID:display_id
+                                                          captureAudio:capture_audio];
         if (!impl) {
             return NULL;
         }

@@ -35,6 +35,7 @@ extern "C" {
         fps: u32,
         quality: u32,
         display_id: u32,
+        capture_audio: bool,
     ) -> *mut SCRecorder;
     
     // Start recording
@@ -78,6 +79,7 @@ impl ScreenCaptureRecorder {
         fps: u32,
         quality: u32,
         display_id: u32,
+        capture_audio: bool,
     ) -> Result<Self, String> {
         let path_cstr = CString::new(output_path)
             .map_err(|e| format!("Invalid path: {}", e))?;
@@ -90,6 +92,7 @@ impl ScreenCaptureRecorder {
                 fps,
                 quality,
                 display_id,
+                capture_audio,
             )
         };
         

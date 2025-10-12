@@ -61,6 +61,12 @@ pub struct RecordingConfig {
     
     /// Capture region (None = full screen)
     pub region: Option<CaptureRegion>,
+    
+    /// Capture microphone audio (default: false)
+    pub capture_microphone: bool,
+    
+    /// Microphone device ID (None = default microphone)
+    pub microphone_device_id: Option<String>,
 }
 
 impl Default for RecordingConfig {
@@ -72,6 +78,8 @@ impl Default for RecordingConfig {
             capture_cursor: true,
             display_id: None,
             region: None,
+            capture_microphone: false,
+            microphone_device_id: None,
         }
     }
 }

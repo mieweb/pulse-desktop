@@ -38,6 +38,7 @@ impl NativeRecorder {
             config.fps,
             config.quality,
             display_id,
+            config.capture_microphone,
         )?;
         
         Ok(Self {

@@ -34,7 +34,8 @@ SCRecorder* sc_recorder_create(
     uint32_t height,
     uint32_t fps,
     uint32_t quality,
-    uint32_t display_id
+    uint32_t display_id,
+    bool capture_audio
 );
 
 // Start recording
