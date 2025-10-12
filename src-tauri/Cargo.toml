@@ -28,13 +28,9 @@ serde_json = "1"
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 
-# Screen capture
-screenshots = "0.7"
+# Native screen capture (replaces screenshots + ffmpeg)
+screen-capture = { path = "../crates/screen-capture" }
 
 # Time tracking
 chrono = "0.4"
-
-# Video encoding
-ffmpeg-next = "7.0"
-image = "0.25"
 
