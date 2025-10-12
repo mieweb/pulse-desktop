@@ -9,15 +9,17 @@ pub struct ScreenCapturer {
     is_recording: bool,
     start_time: Option<Instant>,
     recorder: Option<Recorder>,
+    mic_enabled: bool,
 }
 
 impl ScreenCapturer {
-    pub fn new(output_path: PathBuf) -> Self {
+    pub fn new(output_path: PathBuf, mic_enabled: bool) -> Self {
         Self {
             output_path,
             is_recording: false,
             start_time: None,
             recorder: None,
+            mic_enabled,
         }
     }
 
@@ -46,7 +48,7 @@ impl ScreenCapturer {
             fps: 30,
             quality: 80,
             capture_cursor: true,
-            capture_microphone: true,  // Enable microphone capture
+            capture_microphone: self.mic_enabled,  // Use setting from AppState
             microphone_device_id: None,  // Use default microphone
             display_id: Some(0), // Primary display
             region: None,  // Full screen

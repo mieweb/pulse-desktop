@@ -59,8 +59,14 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                             return;
                         }
                         
+                        // Get mic_enabled from state
+                        let mic_enabled = {
+                            let mic = state.mic_enabled.lock().unwrap();
+                            *mic
+                        };
+                        
                         // Create capturer
-                        let mut capturer = ScreenCapturer::new(output_folder);
+                        let mut capturer = ScreenCapturer::new(output_folder, mic_enabled);
                         
                         // Start recording (blocking call)
                         let runtime = tokio::runtime::Runtime::new().unwrap();

@@ -5,13 +5,15 @@ use std::path::PathBuf;
 pub struct ScreenCapturer {
     output_path: PathBuf,
     is_recording: bool,
+    mic_enabled: bool,
 }
 
 impl ScreenCapturer {
-    pub fn new(output_path: PathBuf) -> Self {
+    pub fn new(output_path: PathBuf, mic_enabled: bool) -> Self {
         Self {
             output_path,
             is_recording: false,
+            mic_enabled,
         }
     }
 
