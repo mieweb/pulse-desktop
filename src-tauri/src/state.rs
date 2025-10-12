@@ -1,12 +1,19 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+#[cfg(target_os = "macos")]
+use crate::capture::macos::ScreenCapturer;
+
+#[cfg(target_os = "windows")]
+use crate::capture::windows::ScreenCapturer;
+
 /// Application state for managing recording settings
 pub struct AppState {
     pub output_folder: Mutex<PathBuf>,
     pub mic_enabled: Mutex<bool>,
     pub clip_count: Mutex<u32>,
     pub is_recording: Mutex<bool>,
+    pub capturer: Mutex<Option<ScreenCapturer>>,
 }
 
 impl AppState {
@@ -30,6 +37,7 @@ impl AppState {
             mic_enabled: Mutex::new(true),
             clip_count: Mutex::new(0),
             is_recording: Mutex::new(false),
+            capturer: Mutex::new(None),
         }
     }
 }

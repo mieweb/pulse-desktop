@@ -1,9 +1,15 @@
-use tauri::{State, AppHandle};
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutEvent, ShortcutState};
+use tauri::{State, AppHandle, Manager};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use crate::state::AppState;
 use crate::events;
+
+#[cfg(target_os = "macos")]
+use crate::capture::macos::ScreenCapturer;
+
+#[cfg(target_os = "windows")]
+use crate::capture::windows::ScreenCapturer;
 
 // Global state to track if we're currently recording
 static IS_RECORDING: AtomicBool = AtomicBool::new(false);
@@ -21,7 +27,7 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
     let shortcut = "Ctrl+Shift+R";
     
     let shortcut: Shortcut = shortcut.parse()?;
-    let app_handle = app.clone();
+    let _app_handle = app.clone();
     
     app.global_shortcut().on_shortcut(shortcut, move |app, _shortcut, event| {
         println!("Hotkey event: state={:?}", event.state);
@@ -32,7 +38,47 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                 if !IS_RECORDING.swap(true, Ordering::SeqCst) {
                     println!("🎬 Starting recording...");
                     let _ = events::emit_status(app, "recording");
-                    // TODO: Actually start screen capture
+                    
+                    // Start actual screen capture in background thread
+                    let app_clone = app.clone();
+                    std::thread::spawn(move || {
+                        let state = app_clone.state::<AppState>();
+                        
+                        // Get output folder
+                        let output_folder = {
+                            let folder = state.output_folder.lock().unwrap();
+                            folder.clone()
+                        };
+                        
+                        // Create output folder if it doesn't exist
+                        if let Err(e) = std::fs::create_dir_all(&output_folder) {
+                            eprintln!("Failed to create output folder: {}", e);
+                            let _ = events::emit_error(&app_clone, "FOLDER_ERROR", &format!("Failed to create output folder: {}", e));
+                            IS_RECORDING.store(false, Ordering::SeqCst);
+                            let _ = events::emit_status(&app_clone, "idle");
+                            return;
+                        }
+                        
+                        // Create capturer
+                        let mut capturer = ScreenCapturer::new(output_folder);
+                        
+                        // Start recording (blocking call)
+                        let runtime = tokio::runtime::Runtime::new().unwrap();
+                        match runtime.block_on(capturer.start_recording()) {
+                            Ok(_) => {
+                                println!("✅ Screen capture started");
+                                // Store capturer in state
+                                let mut cap = state.capturer.lock().unwrap();
+                                *cap = Some(capturer);
+                            }
+                            Err(e) => {
+                                eprintln!("❌ Failed to start recording: {}", e);
+                                let _ = events::emit_error(&app_clone, "CAPTURE_ERROR", &e);
+                                IS_RECORDING.store(false, Ordering::SeqCst);
+                                let _ = events::emit_status(&app_clone, "idle");
+                            }
+                        }
+                    });
                 } else {
                     println!("⚠️  Already recording, ignoring press");
                 }
@@ -43,17 +89,45 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                     println!("⏹️  Stopping recording...");
                     
                     // Immediately transition to idle to allow rapid re-recording
-                    // The actual save happens in background
                     let _ = events::emit_status(app, "idle");
                     
-                    // Simulate saving in background
+                    // Stop actual screen capture in background thread
                     let app_clone = app.clone();
                     std::thread::spawn(move || {
-                        std::thread::sleep(std::time::Duration::from_millis(500));
-                        let _ = events::emit_clip_saved(&app_clone, events::ClipSavedEvent {
-                            path: "recording-1.mp4".to_string(),
-                            duration_ms: 1000,
-                        });
+                        let state = app_clone.state::<AppState>();
+                        
+                        // Get capturer from state (take ownership to release lock immediately)
+                        let capturer_option = {
+                            let mut cap = state.capturer.lock().unwrap();
+                            cap.take()
+                        }; // Lock is released here
+                        
+                        if let Some(mut capturer) = capturer_option {
+                            let runtime = tokio::runtime::Runtime::new().unwrap();
+                            match runtime.block_on(capturer.stop_recording()) {
+                                Ok(path) => {
+                                    println!("✅ Recording saved to: {:?}", path);
+                                    
+                                    // Increment clip count
+                                    {
+                                        let mut count = state.clip_count.lock().unwrap();
+                                        *count += 1;
+                                    }
+                                    
+                                    // Emit clip saved event
+                                    let _ = events::emit_clip_saved(&app_clone, events::ClipSavedEvent {
+                                        path: path.to_string_lossy().to_string(),
+                                        duration_ms: 1000, // TODO: Calculate actual duration
+                                    });
+                                }
+                                Err(e) => {
+                                    eprintln!("❌ Failed to stop recording: {}", e);
+                                    let _ = events::emit_error(&app_clone, "SAVE_ERROR", &e);
+                                }
+                            }
+                        } else {
+                            println!("⚠️  No active capturer to stop");
+                        }
                     });
                 } else {
                     println!("⚠️  Not recording, ignoring release");

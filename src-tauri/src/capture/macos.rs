@@ -1,10 +1,20 @@
-// macOS-specific capture implementation using ScreenCaptureKit
+// macOS-specific capture implementation using screenshots library
 
 use std::path::PathBuf;
+use std::time::Instant;
+use screenshots::Screen;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use chrono::Local;
 
 pub struct ScreenCapturer {
     output_path: PathBuf,
     is_recording: bool,
+    frames: Arc<Mutex<Vec<Vec<u8>>>>,
+    frame_info: Arc<Mutex<Option<(u32, u32)>>>, // width, height
+    start_time: Option<Instant>,
+    capture_thread: Option<thread::JoinHandle<()>>,
+    stop_signal: Arc<Mutex<bool>>,
 }
 
 impl ScreenCapturer {
@@ -12,14 +22,18 @@ impl ScreenCapturer {
         Self {
             output_path,
             is_recording: false,
+            frames: Arc::new(Mutex::new(Vec::new())),
+            frame_info: Arc::new(Mutex::new(None)),
+            start_time: None,
+            capture_thread: None,
+            stop_signal: Arc::new(Mutex::new(false)),
         }
     }
 
     /// Request screen recording permission
     pub async fn request_permission() -> Result<bool, String> {
-        // TODO: Implement ScreenCaptureKit authorization
-        // This requires calling CGRequestScreenCaptureAccess() or similar
-        println!("Requesting screen capture permission on macOS...");
+        // On macOS, screenshots will prompt for permission when needed
+        println!("📸 Screen capture permission will be requested on first capture");
         Ok(true)
     }
 
@@ -29,13 +43,97 @@ impl ScreenCapturer {
             return Err("Already recording".to_string());
         }
 
-        println!("Starting screen recording on macOS...");
-        // TODO: Implement actual recording with ScreenCaptureKit
-        // 1. Create SCStreamConfiguration
-        // 2. Set up SCContentFilter for full screen or region
-        // 3. Start SCStream with output to AVAssetWriter
+        println!("�� Starting screen capture...");
         
+        // Get primary screen
+        let screens = Screen::all()
+            .map_err(|e| format!("Failed to get screens: {}", e))?;
+        
+        if screens.is_empty() {
+            return Err("No screens found".to_string());
+        }
+
+        let screen = screens[0].clone();
+        println!("📺 Capturing display: {} ({}x{})", 
+            screen.display_info.id, 
+            screen.display_info.width, 
+            screen.display_info.height
+        );
+
+        // Store frame dimensions
+        {
+            let mut info = self.frame_info.lock().unwrap();
+            *info = Some((screen.display_info.width, screen.display_info.height));
+        }
+
         self.is_recording = true;
+        self.start_time = Some(Instant::now());
+        
+        // Clear previous state
+        {
+            let mut frames = self.frames.lock().unwrap();
+            frames.clear();
+            let mut stop = self.stop_signal.lock().unwrap();
+            *stop = false;
+        }
+
+        // Spawn capture thread
+        let frames_clone = Arc::clone(&self.frames);
+        let stop_clone = Arc::clone(&self.stop_signal);
+        
+        let handle = thread::spawn(move || {
+            let target_fps = 30;
+            let frame_duration = std::time::Duration::from_millis(1000 / target_fps);
+            let mut frame_count = 0;
+            
+            loop {
+                let loop_start = Instant::now();
+                
+                // Check stop signal
+                {
+                    let stop = stop_clone.lock().unwrap();
+                    if *stop {
+                        println!("🛑 Capture thread received stop signal");
+                        break;
+                    }
+                }
+                
+                // Capture frame
+                match screen.capture() {
+                    Ok(image) => {
+                        let buffer = image.to_png(None)
+                            .expect("Failed to convert to PNG");
+                        
+                        let mut frames = frames_clone.lock().unwrap();
+                        frames.push(buffer);
+                        frame_count += 1;
+                        
+                        if frame_count % 30 == 0 {
+                            println!("📸 Captured {} frames ({}x{})", 
+                                frame_count,
+                                screen.display_info.width,
+                                screen.display_info.height
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Error capturing frame: {}", e);
+                        break;
+                    }
+                }
+                
+                // Maintain target FPS
+                let elapsed = loop_start.elapsed();
+                if elapsed < frame_duration {
+                    thread::sleep(frame_duration - elapsed);
+                }
+            }
+            
+            println!("✅ Capture thread finished with {} frames", frame_count);
+        });
+
+        self.capture_thread = Some(handle);
+        
         Ok(())
     }
 
@@ -45,14 +143,63 @@ impl ScreenCapturer {
             return Err("Not currently recording".to_string());
         }
 
-        println!("Stopping screen recording on macOS...");
-        // TODO: Stop SCStream and finalize AVAssetWriter
+        println!("⏹️  Stopping screen capture...");
+        
+        // Signal capture thread to stop
+        {
+            let mut stop = self.stop_signal.lock().unwrap();
+            *stop = true;
+        }
         
         self.is_recording = false;
-        Ok(self.output_path.clone())
+        
+        // Wait for capture thread to finish
+        if let Some(handle) = self.capture_thread.take() {
+            if let Err(e) = handle.join() {
+                eprintln!("❌ Capture thread panicked: {:?}", e);
+            }
+        }
+
+        let duration = self.start_time
+            .map(|start| start.elapsed())
+            .ok_or("No start time recorded")?;
+
+        let frames = self.frames.lock().unwrap();
+        let frame_count = frames.len();
+        
+        println!("📊 Recording complete:");
+        println!("  Duration: {:.2}s", duration.as_secs_f32());
+        println!("  Frames: {}", frame_count);
+        println!("  FPS: {:.2}", frame_count as f32 / duration.as_secs_f32());
+
+        // Create filename with timestamp
+        let timestamp = Local::now().format("%Y%m%d_%H%M%S");
+        let filename = format!("recording_{}.png", timestamp);
+        let output_path = self.output_path.join(&filename);
+
+        // For now, save the last frame as PNG (MVP)
+        if let Some(last_frame) = frames.last() {
+            std::fs::write(&output_path, last_frame)
+                .map_err(|e| format!("Failed to write PNG: {}", e))?;
+            
+            println!("💾 Saved last frame to: {:?}", output_path);
+        } else {
+            return Err("No frames captured".to_string());
+        }
+
+        println!("⚠️  Note: MP4 video encoding not yet implemented");
+        println!("⚠️  Saved last frame as PNG for now");
+
+        Ok(output_path)
     }
 
+    /// Check if currently recording
     pub fn is_recording(&self) -> bool {
         self.is_recording
+    }
+
+    /// Get frame count
+    pub fn frame_count(&self) -> usize {
+        self.frames.lock().unwrap().len()
     }
 }
