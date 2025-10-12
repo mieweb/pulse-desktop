@@ -1,0 +1,9 @@
+[workspace]
+members = [
+    "src-tauri",
+    "crates/screen-capture",
+]
+resolver = "2"
+
+[workspace.dependencies]
+# Shared dependencies can be defined here

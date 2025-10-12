@@ -34,3 +34,7 @@ screenshots = "0.7"
 # Time tracking
 chrono = "0.4"
 
+# Video encoding
+ffmpeg-next = "7.0"
+image = "0.25"
+

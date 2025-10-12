@@ -5,7 +5,7 @@ use std::time::Instant;
 use screenshots::Screen;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use chrono::Local;
+use crate::encoding::VideoEncoder;
 
 pub struct ScreenCapturer {
     output_path: PathBuf,
@@ -101,6 +101,17 @@ impl ScreenCapturer {
                 // Capture frame
                 match screen.capture() {
                     Ok(image) => {
+                        // Get actual image dimensions (may be scaled for Retina)
+                        let actual_width = image.width();
+                        let actual_height = image.height();
+                        
+                        // Update frame info with actual dimensions on first frame
+                        if frame_count == 0 {
+                            let mut info = self.frame_info.lock().unwrap();
+                            *info = Some((actual_width, actual_height));
+                            println!("📐 Actual capture resolution: {}x{}", actual_width, actual_height);
+                        }
+                        
                         let buffer = image.to_png(None)
                             .expect("Failed to convert to PNG");
                         
@@ -164,33 +175,52 @@ impl ScreenCapturer {
             .map(|start| start.elapsed())
             .ok_or("No start time recorded")?;
 
-        let frames = self.frames.lock().unwrap();
+        let frames = self.frames.lock().unwrap().clone();
         let frame_count = frames.len();
+        
+        if frame_count == 0 {
+            return Err("No frames captured".to_string());
+        }
+        
+        // Get frame dimensions
+        let (width, height) = self.frame_info.lock().unwrap()
+            .ok_or("No frame info available")?;
         
         println!("📊 Recording complete:");
         println!("  Duration: {:.2}s", duration.as_secs_f32());
         println!("  Frames: {}", frame_count);
-        println!("  FPS: {:.2}", frame_count as f32 / duration.as_secs_f32());
+        println!("  Resolution: {}×{}", width, height);
+        println!("  Average FPS: {:.2}", frame_count as f32 / duration.as_secs_f32());
 
-        // Create filename with timestamp
-        let timestamp = Local::now().format("%Y%m%d_%H%M%S");
-        let filename = format!("recording_{}.png", timestamp);
-        let output_path = self.output_path.join(&filename);
+        // Get next sequential recording number
+        let output_path = self.get_next_output_path();
+        println!("💾 Output path: {:?}", output_path);
 
-        // For now, save the last frame as PNG (MVP)
-        if let Some(last_frame) = frames.last() {
-            std::fs::write(&output_path, last_frame)
-                .map_err(|e| format!("Failed to write PNG: {}", e))?;
-            
-            println!("💾 Saved last frame to: {:?}", output_path);
-        } else {
-            return Err("No frames captured".to_string());
-        }
+        // Create video encoder
+        let encoder = VideoEncoder::new(width, height, 30);
+        
+        // Calculate expected duration
+        let expected_duration = encoder.calculate_duration(frame_count);
+        println!("📺 Expected video duration: {:.2}s", expected_duration);
 
-        println!("⚠️  Note: MP4 video encoding not yet implemented");
-        println!("⚠️  Saved last frame as PNG for now");
+        // Encode frames to MP4
+        encoder.encode_to_mp4(frames, output_path.clone())?;
+        
+        println!("✅ Video saved successfully!");
 
         Ok(output_path)
+    }
+
+    /// Get the next sequential recording path (recording-1.mp4, recording-2.mp4, etc.)
+    fn get_next_output_path(&self) -> PathBuf {
+        let mut n = 1;
+        loop {
+            let path = self.output_path.join(format!("recording-{}.mp4", n));
+            if !path.exists() {
+                return path;
+            }
+            n += 1;
+        }
     }
 
     /// Check if currently recording

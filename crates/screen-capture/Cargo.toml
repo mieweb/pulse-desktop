@@ -1,0 +1,15 @@
+[package]
+name = "screen-capture"
+version = "0.1.0"
+edition = "2021"
+authors = ["Pulse Desktop Team"]
+description = "Cross-platform native video screen capture (macOS ScreenCaptureKit, Windows Desktop Duplication)"
+license = "MIT"
+
+[build-dependencies]
+cc = "1.0"
+
+[dependencies]
+
+# macOS dependencies are linked via build.rs
+# Windows dependencies will be added when implementing Windows support

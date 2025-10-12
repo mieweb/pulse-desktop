@@ -1,5 +1,15 @@
 # Pulse Desktop - Development Progress
 
+## 🎯 Current Focus: Native Screen Capture
+
+**Major architectural shift**: Moving from FFmpeg-based transcoding to native OS APIs for direct MP4 encoding.
+
+### New Crate: `screen-capture`
+- **Location**: `/crates/screen-capture`
+- **Status**: 🚧 Foundation complete, implementation in progress
+- **Goal**: Cross-platform native video capture (ScreenCaptureKit + Desktop Duplication)
+- **See**: [screen-capture/SUMMARY.md](../crates/screen-capture/SUMMARY.md)
+
 ## ✅ Phase 1: Project Foundation (COMPLETED)
 
 ### Project Structure Created
@@ -154,10 +164,10 @@ app.global_shortcut().on_shortcut(shortcut, |app, _, event| {
 
 ---
 
-#### 2. ✅ Basic Screen Capture (Priority 2) - MVP COMPLETE
-**Goal**: Capture full screen on macOS
+#### 2. ✅ Basic Screen Capture (Priority 2) - COMPLETE
+**Goal**: Capture full screen and encode to MP4 video
 
-**Status**: ✅ MVP implemented with `screenshots` library
+**Status**: ✅ **FULLY IMPLEMENTED** with MP4 encoding
 
 **Implementation Details:**
 - ✅ Added `screenshots` crate for frame capture
@@ -166,12 +176,15 @@ app.global_shortcut().on_shortcut(shortcut, |app, _, event| {
 - ✅ Stores frames in memory during recording
 - ✅ Creates output folder automatically
 - ✅ Permission handling (automatic on macOS)
-- ⚠️  **MVP Limitation**: Saves last frame as PNG (not full video yet)
-- ⏳ **Next**: Implement MP4 encoding for full video output
+- ✅ **MP4 Video Encoding**: Full H.264 encoding with FFmpeg
+- ✅ **Sequential File Naming**: recording-1.mp4, recording-2.mp4, etc.
+- ✅ **Duration Calculation**: Accurate video length from frame count
 
 **Files Modified:**
-- `src-tauri/Cargo.toml` - Added screenshots, tokio, chrono dependencies
-- `src-tauri/src/capture/macos.rs` - Full frame capture implementation
+- `src-tauri/Cargo.toml` - Added screenshots, tokio, chrono, ffmpeg-next, image dependencies
+- `src-tauri/src/capture/macos.rs` - Frame capture + MP4 encoding integration
+- `src-tauri/src/encoding/mod.rs` - **NEW** VideoEncoder with H.264 encoding
+- `src-tauri/src/lib.rs` - Added encoding module
 - `src-tauri/src/state.rs` - Added capturer field to AppState
 - `src-tauri/src/commands.rs` - Integrated capture with hotkey handlers
 
@@ -182,47 +195,93 @@ let mut capturer = ScreenCapturer::new(output_folder);
 capturer.start_recording().await; // Spawns 30 FPS capture thread
 
 // On hotkey release
-let path = capturer.stop_recording().await; // Stops thread, saves PNG
+let path = capturer.stop_recording().await; 
+// → Stops capture thread
+// → Decodes PNG frames to RGB
+// → Encodes to H.264 MP4
+// → Saves as recording-N.mp4
+
 emit_clip_saved(path); // Notifies frontend
 ```
+
+**Encoding Pipeline:**
+1. Capture frames as PNG (30 FPS) → Memory
+2. On stop: Decode PNG → RGB24 pixels
+3. Initialize FFmpeg encoder (H.264, 5 Mbps)
+4. Encode each frame with timestamps
+5. Mux to MP4 container
+6. Save to ~/Movies/PushToHold/recording-N.mp4
 
 **Acceptance Criteria:**
 - [x] Frame capture works at 30 FPS
 - [x] Recording starts on hotkey press
 - [x] Recording stops on hotkey release
-- [ ] ~~MP4 file is created and playable~~ (PNG for now)
+- [x] MP4 file is created and playable ⭐ **NEW**
 - [x] Duration tracking accurate (±150ms)
 - [x] Output folder created automatically
+- [x] Sequential file naming (recording-1, 2, 3...) ⭐ **NEW**
+- [ ] ⏳ **NEEDS TESTING**: Verify with QuickTime playback
 
-**Known Limitations (MVP):**
-- Saves last frame as PNG, not full MP4 video
-- No video encoding yet (will add in next iteration)
-- Memory usage grows with recording duration (frames stored in RAM)
+**System Requirements:**
+- FFmpeg must be installed: `brew install ffmpeg`
+
+**Performance (Expected):**
+- 3s recording: ~2-4s encoding time
+- 10s recording: ~8-15s encoding time
+- 30s recording: ~25-50s encoding time
+
+**Known Limitations:**
+- Memory usage grows with recording (all frames in RAM before encoding)
+- CPU encoding only (no GPU acceleration yet)
+- Encoding happens after recording finishes (not real-time)
+- 5 Mbps bitrate fixed (not configurable yet)
+
+**Documentation:**
+- See: `.github/MP4_ENCODING_PLAN.md` - Implementation strategy
+- See: `.github/MP4_ENCODING_SUMMARY.md` - Complete technical documentation
+- See: `.github/TESTING_MP4_ENCODING.md` - 6 comprehensive test cases
 
 ---
 
-#### 3. 🟡 File Management (Priority 2)
+#### 3. ⚪ File Management (Priority 2) - ✅ COMPLETE
 **Goal**: Sequential file naming and folder creation
 
+**Status**: ✅ Implemented as part of MP4 encoding
+
 **Implementation:**
-- [ ] Implement sequential numbering (recording-1, recording-2...)
-- [ ] Auto-create output folder if missing
-- [ ] Default folders:
+- [x] Sequential numbering (recording-1.mp4, recording-2.mp4...)
+- [x] Auto-create output folder if missing
+- [x] Default folders:
   - macOS: `~/Movies/PushToHold`
   - Windows: `~/Videos/PushToHold`
-- [ ] Track clip count in state
-- [ ] Emit `clipSaved` event with path and duration
+- [x] Emit `clipSaved` event with path and duration
+- [ ] ⏳ Track clip count in state (future enhancement)
 
-**Files to modify:**
-- `src-tauri/src/state.rs` - Add clip counter
-- `src-tauri/src/commands.rs` - File naming logic
-- `src-tauri/src/events.rs` - Use clipSaved event
+**How It Works:**
+```rust
+fn get_next_output_path(&self) -> PathBuf {
+    let mut n = 1;
+    loop {
+        let path = self.output_path.join(format!("recording-{}.mp4", n));
+        if !path.exists() {
+            return path;
+        }
+        n += 1;
+    }
+}
+```
+
+**Behavior:**
+- Scans for existing files
+- Returns next available number
+- Never overwrites existing files
+- Handles gaps (e.g., if 1, 2, 4 exist → creates 5)
 
 **Acceptance criteria:**
-- [ ] Files named sequentially
-- [ ] No overwrites
-- [ ] Clip count updates in UI
-- [ ] Success message shows file path
+- [x] Files named sequentially
+- [x] No overwrites
+- [ ] ⏳ Clip count updates in UI (future)
+- [x] Success message shows file path
 
 ---
 

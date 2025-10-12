@@ -3,6 +3,7 @@ mod events;
 mod state;
 mod capture;
 mod hotkey;
+mod encoding;
 
 use state::AppState;
 
