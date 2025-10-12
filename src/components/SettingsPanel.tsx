@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-// import { open } from '@tauri-apps/plugin-dialog';
+import { open } from '@tauri-apps/plugin-dialog';
 import type { AppSettings, CaptureMode, AspectRatio } from '../types';
 import './SettingsPanel.css';
 
@@ -16,16 +16,22 @@ export function SettingsPanel({
 }: SettingsPanelProps) {
   const handleSelectFolder = async () => {
     try {
-      // TODO: Implement folder selection with @tauri-apps/plugin-dialog
-      // For now, user can manually type path or we'll use default
-      const folderPath = prompt('Enter output folder path:', settings.outputFolder);
+      // Get the current output folder from backend (will be absolute path)
+      const currentFolder = await invoke<string>('get_output_folder');
       
-      if (folderPath) {
-        onSettingsChange({ outputFolder: folderPath });
-        await invoke('set_output_folder', { path: folderPath });
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        defaultPath: currentFolder,
+        title: 'Select Output Folder',
+      });
+      
+      if (selected && typeof selected === 'string') {
+        onSettingsChange({ outputFolder: selected });
+        await invoke('set_output_folder', { path: selected });
       }
     } catch (error) {
-      console.error('Failed to set folder:', error);
+      console.error('Failed to select folder:', error);
     }
   };
 

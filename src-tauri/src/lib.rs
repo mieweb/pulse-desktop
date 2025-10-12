@@ -21,6 +21,8 @@ pub fn run() {
             commands::init_hotkey,
             commands::start_recording,
             commands::stop_recording,
+            commands::open_folder,
+            commands::open_file,
         ])
         .setup(|app| {
             commands::setup_global_shortcut(&app.handle())?;

@@ -75,6 +75,41 @@ body, html {
   font-size: 0.875rem;
 }
 
+.success-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.success-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-start;
+}
+
+.action-button {
+  padding: 0.5rem 1rem;
+  background-color: #10b981;
+  color: white;
+  border: none;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.action-button:hover {
+  background-color: #059669;
+}
+
+.action-button:active {
+  background-color: #047857;
+}
+
 @media (prefers-color-scheme: dark) {
   .error-message {
     background-color: #7f1d1d;
@@ -86,6 +121,18 @@ body, html {
     background-color: #064e3b;
     color: #d1fae5;
     border-color: #065f46;
+  }
+
+  .action-button {
+    background-color: #059669;
+  }
+
+  .action-button:hover {
+    background-color: #10b981;
+  }
+
+  .action-button:active {
+    background-color: #047857;
   }
 }
 
