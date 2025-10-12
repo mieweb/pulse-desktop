@@ -30,13 +30,14 @@ body, html {
 .container {
   margin: 0;
   padding: 1rem;
-  height: 100vh;
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 1rem;
   overflow-y: auto;
+  padding-top: 2rem;
 }
 
 .app-header {
@@ -65,7 +66,7 @@ body, html {
 }
 
 .success-message {
-  padding: 1rem;
+  padding: 0.75rem 1rem;
   background-color: #d1fae5;
   color: #065f46;
   border-radius: 0.5rem;
@@ -77,29 +78,31 @@ body, html {
 
 .success-content {
   display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
+  align-items: center;
+  gap: 1rem;
+  justify-content: space-between;
 }
 
 .success-actions {
   display: flex;
   gap: 0.5rem;
-  justify-content: flex-start;
+  flex-shrink: 0;
 }
 
 .action-button {
-  padding: 0.5rem 1rem;
+  padding: 0.375rem 0.75rem;
   background-color: #10b981;
   color: white;
   border: none;
   border-radius: 0.375rem;
-  font-size: 0.875rem;
+  font-size: 0.75rem;
   font-weight: 500;
   cursor: pointer;
   transition: background-color 0.2s;
   display: flex;
   align-items: center;
   gap: 0.25rem;
+  white-space: nowrap;
 }
 
 .action-button:hover {
@@ -143,14 +146,7 @@ body, html {
   }
 }
 
-.container {
-  margin: 0;
-  padding-top: 10vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  text-align: center;
-}
+/* Removed duplicate container rule */
 
 .logo {
   height: 6em;

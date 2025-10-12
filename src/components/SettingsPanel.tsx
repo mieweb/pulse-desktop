@@ -63,123 +63,124 @@ export function SettingsPanel({
 
   return (
     <div className="settings-panel">
-      {/* Top row: Output and clips counter combined */}
-      <div className="settings-section compact">
-        <div className="section-row">
-          <div className="section-col">
-            <h2>Output Folder</h2>
+      {/* Status bar: Output location and clips counter */}
+      <div className="status-bar">
+        <div className="status-item">
+          <div className="status-label">Output</div>
+          <button
+            onClick={handleSelectFolder}
+            className="folder-button"
+            aria-label="Select output folder"
+            title={settings.outputFolder}
+          >
+            📁 <span className="folder-path">{settings.outputFolder.split('/').pop() || 'Movies'}</span>
+          </button>
+        </div>
+        <div className="status-item clips-status">
+          <div className="status-label">Clips</div>
+          <div className="clip-counter" aria-live="polite">
+            {clipCount}
+          </div>
+        </div>
+      </div>
+
+      {/* Capture settings */}
+      <div className="capture-settings">
+        <div className="setting-group">
+          <label className="setting-label">Capture Mode</label>
+          <div className="button-group" role="group" aria-label="Capture mode">
             <button
-              onClick={handleSelectFolder}
-              className="button-secondary compact"
-              aria-label="Select output folder"
-              title={settings.outputFolder}
+              onClick={() => handleCaptureModeChange('full')}
+              className={`capture-button ${settings.captureMode === 'full' ? 'active' : ''}`}
+              aria-pressed={settings.captureMode === 'full'}
+              title="Full Screen"
             >
-              📁 Change
+              🖥️ Full Screen
+            </button>
+            <button
+              onClick={() => handleCaptureModeChange('region')}
+              className={`capture-button ${settings.captureMode === 'region' ? 'active' : ''}`}
+              aria-pressed={settings.captureMode === 'region'}
+              title="Region"
+            >
+              ✂️ Region
             </button>
           </div>
-          <div className="section-col text-right">
-            <h2>Saved Clips</h2>
-            <div className="clip-counter-large" aria-live="polite">
-              {clipCount}
-            </div>
-          </div>
         </div>
-      </div>
-
-      {/* Capture mode and Aspect ratio in one row */}
-      <div className="settings-section compact">
-        <div className="section-row">
-          <div className="section-col">
-            <h2>Capture</h2>
-            <div className="button-group compact" role="group" aria-label="Capture mode">
-              <button
-                onClick={() => handleCaptureModeChange('full')}
-                className={settings.captureMode === 'full' ? 'active' : ''}
-                aria-pressed={settings.captureMode === 'full'}
-                title="Full Screen"
-              >
-                🖥️ Full
-              </button>
-              <button
-                onClick={() => handleCaptureModeChange('region')}
-                className={settings.captureMode === 'region' ? 'active' : ''}
-                aria-pressed={settings.captureMode === 'region'}
-                title="Region"
-              >
-                ✂️ Region
-              </button>
-            </div>
-          </div>
-          <div className="section-col">
-            <h2>Aspect Ratio</h2>
-            <div className="button-group compact" role="group" aria-label="Aspect ratio">
-              <button
-                onClick={() => handleAspectChange('16:9')}
-                className={settings.aspectRatio === '16:9' ? 'active' : ''}
-                aria-pressed={settings.aspectRatio === '16:9'}
-              >
-                16:9
-              </button>
-              <button
-                onClick={() => handleAspectChange('9:16')}
-                className={settings.aspectRatio === '9:16' ? 'active' : ''}
-                aria-pressed={settings.aspectRatio === '9:16'}
-              >
-                9:16
-              </button>
-              <button
-                onClick={() => handleAspectChange('none')}
-                className={settings.aspectRatio === 'none' ? 'active' : ''}
-                aria-pressed={settings.aspectRatio === 'none'}
-              >
-                Free
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Options row: checkboxes and authorize */}
-      <div className="settings-section compact">
-        <div className="section-row">
-          <div className="section-col">
-            <label className="checkbox-label compact">
-              <input
-                type="checkbox"
-                checked={settings.scaleToPreset}
-                onChange={handleScaleToggle}
-                aria-label="Scale to preset resolution"
-              />
-              <span>Scale to preset</span>
-            </label>
-            <label className="checkbox-label compact">
-              <input
-                type="checkbox"
-                checked={settings.micEnabled}
-                onChange={handleMicToggle}
-                aria-label="Enable microphone"
-              />
-              <span>🎤 Microphone</span>
-            </label>
-          </div>
-          <div className="section-col text-right">
+        
+        <div className="setting-group">
+          <label className="setting-label">Aspect Ratio</label>
+          <div className="button-group" role="group" aria-label="Aspect ratio">
             <button
-              onClick={handleAuthorizeCapture}
-              className="button-secondary compact"
-              aria-label="Authorize screen capture"
+              onClick={() => handleAspectChange('16:9')}
+              className={`aspect-button ${settings.aspectRatio === '16:9' ? 'active' : ''}`}
+              aria-pressed={settings.aspectRatio === '16:9'}
             >
-              🔒 Authorize
+              16:9
+            </button>
+            <button
+              onClick={() => handleAspectChange('9:16')}
+              className={`aspect-button ${settings.aspectRatio === '9:16' ? 'active' : ''}`}
+              aria-pressed={settings.aspectRatio === '9:16'}
+            >
+              9:16
+            </button>
+            <button
+              onClick={() => handleAspectChange('none')}
+              className={`aspect-button ${settings.aspectRatio === 'none' ? 'active' : ''}`}
+              aria-pressed={settings.aspectRatio === 'none'}
+            >
+              Free
             </button>
           </div>
         </div>
       </div>
 
-      {/* Hotkey info - compact footer */}
-      <div className="settings-footer">
-        <span className="hotkey-display">
+      {/* Options and controls */}
+      <div className="options-bar">
+        <div className="options-group">
+          <div className="toggle-option">
+            <input
+              type="checkbox"
+              id="scale-toggle"
+              checked={settings.scaleToPreset}
+              onChange={handleScaleToggle}
+              className="toggle-input"
+              aria-label="Scale to preset resolution"
+            />
+            <label htmlFor="scale-toggle" className="toggle-label">
+              Scale to preset
+            </label>
+          </div>
+          <div className="toggle-option">
+            <input
+              type="checkbox"
+              id="mic-toggle"
+              checked={settings.micEnabled}
+              onChange={handleMicToggle}
+              className="toggle-input"
+              aria-label="Enable microphone"
+            />
+            <label htmlFor="mic-toggle" className="toggle-label">
+              🎤 Microphone
+            </label>
+          </div>
+        </div>
+        <button
+          onClick={handleAuthorizeCapture}
+          className="authorize-button"
+          aria-label="Authorize screen capture"
+        >
+          🔒 Authorize Capture
+        </button>
+      </div>
+
+      {/* Hotkey instruction */}
+      <div className="hotkey-instruction">
+        <div className="hotkey-badge">
           {navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+Shift+R
-        </span>
-        <span className="help-text">Hold to record, release to save</span>
+        </div>
+        <span className="instruction-text">Hold to record • Release to save</span>
       </div>
     </div>
   );
