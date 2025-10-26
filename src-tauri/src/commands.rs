@@ -298,11 +298,14 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                         if let Some(mut capturer) = capturer_option {
                             let runtime = tokio::runtime::Runtime::new().unwrap();
                             match runtime.block_on(capturer.stop_recording()) {
-                                Ok(path) => {
+                                Ok((path, duration_seconds)) => {
                                     // Clear recording active flag
                                     RECORDING_ACTIVE.store(false, Ordering::SeqCst);
                                     
-                                    info!("✅ Recording saved to: {:?}", path);
+                                    // Convert duration to milliseconds
+                                    let duration_ms = (duration_seconds * 1000.0) as u64;
+                                    
+                                    info!("✅ Recording saved to: {:?}, duration: {:.2}s", path, duration_seconds);
                                     
                                     // Increment clip count
                                     {
@@ -322,8 +325,7 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                                             .unwrap_or("recording.mp4")
                                             .to_string();
                                         
-                                        // TODO: Get actual recording parameters
-                                        let duration_ms = 1000; // Placeholder
+                                        // Use actual duration from recording
                                         let aspect_ratio = "none".to_string(); // Will be updated with actual aspect ratio
                                         let width = 1920; // Will be updated with actual width
                                         let height = 1080; // Will be updated with actual height
@@ -333,7 +335,7 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                                         let _ = runtime.block_on(async {
                                             if let Err(e) = add_timeline_entry(
                                                 filename,
-                                                duration_ms,
+                                                duration_ms, // Now using actual duration
                                                 aspect_ratio,
                                                 width,
                                                 height,
@@ -344,10 +346,10 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                                         });
                                     }
                                     
-                                    // Emit clip saved event
+                                    // Emit clip saved event with actual duration
                                     let _ = events::emit_clip_saved(&app_clone, events::ClipSavedEvent {
                                         path: path.to_string_lossy().to_string(),
-                                        duration_ms: 1000, // TODO: Calculate actual duration
+                                        duration_ms, // Now using actual duration
                                     });
                                     
                                     // Re-initialize capturer for next recording (in background)
@@ -620,10 +622,27 @@ pub async fn get_performance_settings() -> Result<PerformanceSettings, String> {
 /// Open a folder in the system file explorer
 #[tauri::command]
 pub async fn open_folder(path: String) -> Result<(), String> {
+    // Expand ~ to home directory
+    let expanded_path = if path.starts_with("~/") {
+        if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
+            let home_path = std::path::PathBuf::from(home);
+            home_path.join(&path[2..]).to_string_lossy().to_string()
+        } else {
+            path.clone()
+        }
+    } else {
+        path.clone()
+    };
+    
+    // Verify folder exists
+    if !std::path::Path::new(&expanded_path).exists() {
+        return Err(format!("The folder {} does not exist.", expanded_path));
+    }
+    
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
-            .arg(&path)
+            .arg(&expanded_path)
             .spawn()
             .map_err(|e| format!("Failed to open folder: {}", e))?;
     }
@@ -631,7 +650,7 @@ pub async fn open_folder(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("explorer")
-            .arg(&path)
+            .arg(&expanded_path)
             .spawn()
             .map_err(|e| format!("Failed to open folder: {}", e))?;
     }
@@ -639,7 +658,7 @@ pub async fn open_folder(path: String) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
         std::process::Command::new("xdg-open")
-            .arg(&path)
+            .arg(&expanded_path)
             .spawn()
             .map_err(|e| format!("Failed to open folder: {}", e))?;
     }
@@ -650,10 +669,27 @@ pub async fn open_folder(path: String) -> Result<(), String> {
 /// Open a file with the system's default application
 #[tauri::command]
 pub async fn open_file(path: String) -> Result<(), String> {
+    // Expand ~ to home directory
+    let expanded_path = if path.starts_with("~/") {
+        if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
+            let home_path = std::path::PathBuf::from(home);
+            home_path.join(&path[2..]).to_string_lossy().to_string()
+        } else {
+            path.clone()
+        }
+    } else {
+        path.clone()
+    };
+    
+    // Verify file exists
+    if !std::path::Path::new(&expanded_path).exists() {
+        return Err(format!("The file {} does not exist.", expanded_path));
+    }
+    
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
-            .arg(&path)
+            .arg(&expanded_path)
             .spawn()
             .map_err(|e| format!("Failed to open file: {}", e))?;
     }
@@ -661,7 +697,7 @@ pub async fn open_file(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("cmd")
-            .args(&["/C", "start", "", &path])
+            .args(&["/C", "start", "", &expanded_path])
             .spawn()
             .map_err(|e| format!("Failed to open file: {}", e))?;
     }
@@ -669,7 +705,7 @@ pub async fn open_file(path: String) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
         std::process::Command::new("xdg-open")
-            .arg(&path)
+            .arg(&expanded_path)
             .spawn()
             .map_err(|e| format!("Failed to open file: {}", e))?;
     }
@@ -784,7 +820,9 @@ pub struct Project {
 pub struct TimelineEntry {
     pub id: String,
     pub filename: String,
+    #[serde(rename = "recordedAt", alias = "recorded_at")]
     pub recorded_at: String,
+    #[serde(rename = "durationMs", alias = "duration_ms")]
     pub duration_ms: u64,
     pub aspect_ratio: String,
     pub resolution: Resolution,
@@ -802,8 +840,11 @@ pub struct Resolution {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectTimeline {
+    #[serde(rename = "projectName", alias = "project_name")]
     pub project_name: String,
+    #[serde(rename = "createdAt", alias = "created_at")]
     pub created_at: String,
+    #[serde(rename = "lastModified", alias = "last_modified")]
     pub last_modified: String,
     pub entries: Vec<TimelineEntry>,
     pub metadata: TimelineMetadata,
@@ -811,8 +852,11 @@ pub struct ProjectTimeline {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimelineMetadata {
+    #[serde(rename = "totalVideos", alias = "total_videos")]
     pub total_videos: u32,
+    #[serde(rename = "totalDuration", alias = "total_duration")]
     pub total_duration: u64,
+    #[serde(rename = "defaultAspectRatio", alias = "default_aspect_ratio")]
     pub default_aspect_ratio: Option<String>,
     pub tags: Option<Vec<String>>,
 }
@@ -1396,6 +1440,7 @@ pub async fn add_timeline_entry(
     timeline.last_modified = now;
     timeline.metadata.total_videos = timeline.entries.len() as u32;
     timeline.metadata.total_duration = timeline.entries.iter().map(|e| e.duration_ms).sum();
+
 
     // Save updated timeline
     let timeline_json = serde_json::to_string_pretty(&timeline)

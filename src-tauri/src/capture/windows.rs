@@ -40,7 +40,7 @@ impl ScreenCapturer {
     }
 
     /// Stop recording and save the file
-    pub async fn stop_recording(&mut self) -> Result<PathBuf, String> {
+    pub async fn stop_recording(&mut self) -> Result<(PathBuf, f64), String> {
         if !self.is_recording {
             return Err("Not currently recording".to_string());
         }
@@ -49,7 +49,8 @@ impl ScreenCapturer {
         // TODO: Stop capture and finalize Media Foundation output
         
         self.is_recording = false;
-        Ok(self.output_path.clone())
+        // Return placeholder duration for now (Windows implementation not complete)
+        Ok((self.output_path.clone(), 1.0))
     }
 
     pub fn is_recording(&self) -> bool {

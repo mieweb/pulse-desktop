@@ -56,6 +56,7 @@ API_AVAILABLE(macos(12.3))
 @property (nonatomic, assign) uint32_t fps;
 @property (nonatomic, assign) uint32_t width;
 @property (nonatomic, assign) uint32_t height;
+@property (nonatomic, assign) NSTimeInterval finalDuration;
 
 - (instancetype)initWithConfig:(const char*)path
                          width:(uint32_t)w
@@ -95,6 +96,7 @@ API_AVAILABLE(macos(12.3))
         _firstFrameTime = kCMTimeZero;
         _firstAudioTime = kCMTimeZero;
         _lastError = nil;
+        _finalDuration = 0.0;
         
         // Initialize asset writer
         NSError *error = nil;
@@ -303,6 +305,20 @@ API_AVAILABLE(macos(12.3))
             if (weakSelf.assetWriter.status == AVAssetWriterStatusFailed) {
                 weakSelf.lastError = [NSString stringWithFormat:@"Asset writer failed: %@", weakSelf.assetWriter.error];
                 result = -1;
+            } else {
+                // Calculate actual media duration from the written file
+                NSURL *outputURL = [NSURL fileURLWithPath:weakSelf.outputPath];
+                AVAsset *asset = [AVAsset assetWithURL:outputURL];
+                CMTime duration = asset.duration;
+                if (CMTIME_IS_VALID(duration) && !CMTIME_IS_INDEFINITE(duration)) {
+                    weakSelf.finalDuration = CMTimeGetSeconds(duration);
+                    LOG_INFO(@"📊 Actual media duration: %.3fs", weakSelf.finalDuration);
+                } else {
+                    // Fallback to wall clock time if media duration unavailable
+                    NSTimeInterval currentTime = [NSDate timeIntervalSinceReferenceDate];
+                    weakSelf.finalDuration = currentTime - weakSelf.startTime;
+                    LOG_WARN(@"⚠️ Using wall clock duration: %.3fs (media duration unavailable)", weakSelf.finalDuration);
+                }
             }
             weakSelf.isRecording = NO;
             dispatch_semaphore_signal(semaphore);
@@ -315,7 +331,10 @@ API_AVAILABLE(macos(12.3))
 
 - (double)duration {
     if (_isRecording) {
-        return [NSDate timeIntervalSinceReferenceDate] - _startTime;
+        double currentDuration = [NSDate timeIntervalSinceReferenceDate] - _startTime;
+        return currentDuration;
+    } else if (_finalDuration > 0) {
+        return _finalDuration;
     }
     return 0.0;
 }

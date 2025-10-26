@@ -1,5 +1,7 @@
 # Pulse Desktop
 
+Check out [pulse](https://github.com/mieweb/pulse) to get pulse and this repo together.
+
 **Minimal push-to-hold screen recorder for macOS and Windows**
 
 Push-to-hold screen capture with the simplicity of a walkie-talkie. Press `Cmd+Shift+R` (macOS) or `Ctrl+Shift+R` (Windows), hold to record, release to save. Videos are automatically saved to your Movies folder.

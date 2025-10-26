@@ -169,14 +169,14 @@ impl Recorder {
     }
     
     /// Stop recording and finalize the video file
-    pub fn stop(&mut self) -> Result<PathBuf, String> {
+    pub fn stop(&mut self) -> Result<(PathBuf, f64), String> {
         if self.state != RecordingState::Recording {
             return Err("Recorder is not recording".to_string());
         }
         
-        self.native.stop()?;
+        let (path, duration) = self.native.stop()?;
         self.state = RecordingState::Stopped;
-        Ok(self.config.output_path.clone())
+        Ok((path, duration))
     }
     
     /// Get current recording state
