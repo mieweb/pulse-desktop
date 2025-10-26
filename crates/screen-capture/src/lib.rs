@@ -139,6 +139,7 @@ pub fn get_audio_devices() -> Result<Vec<AudioDevice>, String> {
 /// Cross-platform screen recorder
 pub struct Recorder {
     native: NativeRecorder,
+    // Stored for potential future use (e.g., querying config after creation)
     #[allow(dead_code)]
     config: RecordingConfig,
     state: RecordingState,

@@ -23,6 +23,7 @@ impl WatcherControl {
     }
     
     /// Check if watcher is currently enabled
+    /// Utility method for potential future debugging or status checks
     #[allow(dead_code)]
     pub fn is_enabled(&self) -> bool {
         self.enabled.load(Ordering::SeqCst)

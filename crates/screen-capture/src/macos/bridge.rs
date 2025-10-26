@@ -16,11 +16,11 @@ pub struct SCRecorder {
     _private: [u8; 0],
 }
 
-// Callback type for recording events
+// Callback type for recording events (reserved for future event callback system)
 #[allow(dead_code)]
 pub type SCRecorderCallback = extern "C" fn(event: i32, user_data: *mut c_void);
 
-// Events
+// Event constants for FFI callback interface (reserved for future use)
 #[allow(dead_code)]
 pub const SC_EVENT_STARTED: i32 = 0;
 #[allow(dead_code)]
@@ -59,7 +59,7 @@ extern "C" {
     // Free the recorder
     pub fn sc_recorder_free(recorder: *mut SCRecorder);
     
-    // Set callback for events
+    // Set callback for events (reserved for future event callback implementation)
     #[allow(dead_code)]
     pub fn sc_recorder_set_callback(
         recorder: *mut SCRecorder,

@@ -4,12 +4,16 @@
 use super::{HotkeyCallback, HotkeyManager};
 use log::debug;
 
+/// macOS-specific hotkey manager implementation
+/// Reserved for future global hotkey feature (CGEventTap-based Cmd+Shift+R)
 #[allow(dead_code)]
 pub struct MacOSHotkeyManager {
     callback: Option<HotkeyCallback>,
 }
 
 impl MacOSHotkeyManager {
+    /// Constructor for macOS hotkey manager
+    /// Reserved for future hotkey feature initialization
     #[allow(dead_code)]
     pub fn new() -> Self {
         Self { callback: None }

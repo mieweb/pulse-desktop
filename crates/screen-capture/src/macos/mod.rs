@@ -62,6 +62,7 @@ pub extern "C" fn rust_log_error(msg: *const c_char) {
 
 pub struct NativeRecorder {
     recorder: Option<ScreenCaptureRecorder>,
+    // Stored for potential future use (e.g., reconfiguring or querying settings)
     #[allow(dead_code)]
     config: RecordingConfig,
 }

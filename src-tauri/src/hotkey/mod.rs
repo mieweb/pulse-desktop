@@ -18,10 +18,14 @@ mod platform {
     pub use super::windows::*;
 }
 
+
 pub type HotkeyCallback = Box<dyn Fn(bool) + Send + 'static>;
 
+/// Global hotkey management trait
+/// Reserved for future hotkey feature implementation (currently using DebugControls in UI)
 #[allow(dead_code)]
 pub trait HotkeyManager {
     fn register(&mut self, callback: HotkeyCallback) -> Result<(), String>;
     fn unregister(&mut self) -> Result<(), String>;
 }
+

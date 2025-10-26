@@ -14,6 +14,7 @@ pub struct AppState {
     pub mic_enabled: Mutex<bool>,
     pub selected_audio_device: Mutex<Option<String>>, // Audio device ID
     pub clip_count: Mutex<u32>,
+    /// Recording state tracked internally (actual state managed via atomic bools in commands.rs)
     #[allow(dead_code)]
     pub is_recording: Mutex<bool>,
     pub capturer: Mutex<Option<ScreenCapturer>>,
