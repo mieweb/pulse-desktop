@@ -118,11 +118,11 @@ impl ScreenCapturer {
         }
     }
 
-    /// Get the next sequential recording path (recording-1.mp4, recording-2.mp4, etc.)
+    /// Get the next sequential recording path (1.mp4, 2.mp4, etc.)
     fn get_next_output_path(&self) -> PathBuf {
         let mut n = 1;
         loop {
-            let path = self.output_path.join(format!("recording-{}.mp4", n));
+            let path = self.output_path.join(format!("{}.mp4", n));
             if !path.exists() {
                 return path;
             }
@@ -134,10 +134,10 @@ impl ScreenCapturer {
     fn get_last_created_path(&self) -> PathBuf {
         // Find the highest numbered recording that exists
         let mut n = 1;
-        let mut last_path = self.output_path.join(format!("recording-{}.mp4", n));
+        let mut last_path = self.output_path.join(format!("{}.mp4", n));
         
         loop {
-            let path = self.output_path.join(format!("recording-{}.mp4", n));
+            let path = self.output_path.join(format!("{}.mp4", n));
             if !path.exists() {
                 break;
             }
