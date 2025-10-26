@@ -1,8 +1,13 @@
 // Core types for Pulse Desktop
 
-export type CaptureMode = 'full' | 'region';
-export type AspectRatio = '16:9' | '9:16' | 'none';
-export type RecordingStatus = 'idle' | 'recording' | 'saving' | 'error';
+export type CaptureMode = "full" | "region";
+export type AspectRatio = "16:9" | "9:16" | "none";
+export type RecordingStatus =
+  | "idle"
+  | "preparing"
+  | "recording"
+  | "saving"
+  | "error";
 
 export interface CaptureRegion {
   x: number;
@@ -45,15 +50,15 @@ export interface ErrorEvent {
 
 // Preset resolutions for aspect ratios
 export const ASPECT_PRESETS: Record<AspectRatio, OutputResolution[]> = {
-  '16:9': [
+  "16:9": [
     { width: 1920, height: 1080 },
     { width: 2560, height: 1440 },
     { width: 3840, height: 2160 },
   ],
-  '9:16': [
+  "9:16": [
     { width: 1080, height: 1920 },
     { width: 1440, height: 2560 },
     { width: 2160, height: 3840 },
   ],
-  'none': [],
+  none: [],
 };
