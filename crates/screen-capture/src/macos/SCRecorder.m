@@ -33,6 +33,7 @@
     rust_log_error([msg UTF8String]); \
 } while(0)
 
+API_AVAILABLE(macos(12.3))
 @interface SCRecorderImpl : NSObject <SCStreamOutput, SCStreamDelegate, AVCaptureAudioDataOutputSampleBufferDelegate>
 
 @property (nonatomic, strong) SCStream *stream;
@@ -322,45 +323,22 @@
 - (void)setupAudioCapture {
     _audioSession = [[AVCaptureSession alloc] init];
     
-    // Get all available audio devices
-    NSArray<AVCaptureDevice *> *allAudioDevices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeAudio];
-    
+    // Get audio device
+    // Note: Since this app requires macOS 12.3+ (ScreenCaptureKit), we use the default device
+    // User can specify a device ID if they want a specific one
     AVCaptureDevice *audioDevice = nil;
     
-    // If user specified a device ID, try to find it
+    // If user specified a device ID, try to get that specific device
     if (_audioDeviceID && _audioDeviceID.length > 0) {
-        for (AVCaptureDevice *device in allAudioDevices) {
-            if ([device.uniqueID isEqualToString:_audioDeviceID]) {
-                audioDevice = device;
-                LOG_INFO(@"🎤 Using user-selected audio input: %@", audioDevice.localizedName);
-                break;
-            }
-        }
-        
-        // Warn if the specified device wasn't found
-        if (!audioDevice) {
-            LOG_WARN(@"⚠️ Specified audio device ID not found: %@, falling back to auto-select", _audioDeviceID);
+        audioDevice = [AVCaptureDevice deviceWithUniqueID:_audioDeviceID];
+        if (audioDevice) {
+            LOG_INFO(@"🎤 Using user-selected audio input: %@", audioDevice.localizedName);
+        } else {
+            LOG_WARN(@"⚠️ Specified audio device ID not found: %@, falling back to default", _audioDeviceID);
         }
     }
     
-    // Auto-select: Prefer built-in microphone over virtual audio devices
-    if (!audioDevice) {
-        // Look for "Built-in" or "MacBook" in the device name, or check for BuiltInMicrophoneDevice ID
-        for (AVCaptureDevice *device in allAudioDevices) {
-            NSString *deviceName = device.localizedName.lowercaseString;
-            NSString *deviceID = device.uniqueID;
-            
-            // Prioritize actual built-in microphones
-            if ([deviceID isEqualToString:@"BuiltInMicrophoneDevice"] ||
-                [deviceName containsString:@"built-in"] ||
-                [deviceName containsString:@"macbook"]) {
-                audioDevice = device;
-                break;
-            }
-        }
-    }
-    
-    // Fallback to default device if no built-in found
+    // Fallback to default device
     if (!audioDevice) {
         audioDevice = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeAudio];
     }
@@ -508,6 +486,7 @@ struct SCRecorder {
     void *impl; // Opaque pointer to SCRecorderImpl
 };
 
+API_AVAILABLE(macos(12.3))
 SCRecorder* sc_recorder_create(
     const char* output_path,
     uint32_t width,
@@ -537,6 +516,7 @@ SCRecorder* sc_recorder_create(
     }
 }
 
+API_AVAILABLE(macos(12.3))
 int32_t sc_recorder_start(SCRecorder* recorder) {
     @autoreleasepool {
         if (!recorder) return -1;
@@ -545,6 +525,7 @@ int32_t sc_recorder_start(SCRecorder* recorder) {
     }
 }
 
+API_AVAILABLE(macos(12.3))
 int32_t sc_recorder_stop(SCRecorder* recorder) {
     @autoreleasepool {
         if (!recorder) return -1;
@@ -553,6 +534,7 @@ int32_t sc_recorder_stop(SCRecorder* recorder) {
     }
 }
 
+API_AVAILABLE(macos(12.3))
 double sc_recorder_duration(SCRecorder* recorder) {
     @autoreleasepool {
         if (!recorder) return 0.0;
@@ -561,6 +543,7 @@ double sc_recorder_duration(SCRecorder* recorder) {
     }
 }
 
+API_AVAILABLE(macos(12.3))
 void sc_recorder_free(SCRecorder* recorder) {
     @autoreleasepool {
         if (recorder) {
@@ -571,6 +554,7 @@ void sc_recorder_free(SCRecorder* recorder) {
     }
 }
 
+API_AVAILABLE(macos(12.3))
 void sc_recorder_set_callback(
     SCRecorder* recorder,
     SCRecorderCallback callback,
@@ -582,6 +566,7 @@ void sc_recorder_set_callback(
     (void)user_data;
 }
 
+API_AVAILABLE(macos(12.3))
 const char* sc_recorder_last_error(SCRecorder* recorder) {
     @autoreleasepool {
         if (!recorder) return NULL;
@@ -609,34 +594,31 @@ typedef struct {
 
 AudioDeviceList* sc_get_audio_devices(void) {
     @autoreleasepool {
-        NSArray<AVCaptureDevice *> *allDevices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeAudio];
+        // Get default audio device
+        // Note: Since this app requires macOS 12.3+, we just return the default device
         AVCaptureDevice *defaultDevice = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeAudio];
         
         AudioDeviceList* list = (AudioDeviceList*)malloc(sizeof(AudioDeviceList));
-        list->count = allDevices.count;
-        list->devices = (AudioDeviceInfo*)calloc(list->count, sizeof(AudioDeviceInfo));
         
-        for (size_t i = 0; i < allDevices.count; i++) {
-            AVCaptureDevice *device = allDevices[i];
+        if (defaultDevice) {
+            list->count = 1;
+            list->devices = (AudioDeviceInfo*)calloc(1, sizeof(AudioDeviceInfo));
             
             // Copy device ID
-            const char *idStr = [device.uniqueID UTF8String];
-            list->devices[i].device_id = strdup(idStr);
+            const char *idStr = [defaultDevice.uniqueID UTF8String];
+            list->devices[0].device_id = strdup(idStr);
             
             // Copy device name
-            const char *nameStr = [device.localizedName UTF8String];
-            list->devices[i].device_name = strdup(nameStr);
+            const char *nameStr = [defaultDevice.localizedName UTF8String];
+            list->devices[0].device_name = strdup(nameStr);
             
-            // Check if this is the default device
-            list->devices[i].is_default = [device.uniqueID isEqualToString:defaultDevice.uniqueID];
-            
-            // Check if this is a built-in microphone
-            NSString *deviceName = device.localizedName.lowercaseString;
-            NSString *deviceID = device.uniqueID;
-            list->devices[i].is_builtin = 
-                [deviceID isEqualToString:@"BuiltInMicrophoneDevice"] ||
-                [deviceName containsString:@"built-in"] ||
-                [deviceName containsString:@"macbook"];
+            // Mark as default and check if built-in
+            list->devices[0].is_default = true;
+            NSString *deviceID = defaultDevice.uniqueID;
+            list->devices[0].is_builtin = [deviceID isEqualToString:@"BuiltInMicrophoneDevice"];
+        } else {
+            list->count = 0;
+            list->devices = NULL;
         }
         
         return list;

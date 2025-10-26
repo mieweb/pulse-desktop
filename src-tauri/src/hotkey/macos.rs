@@ -4,11 +4,13 @@
 use super::{HotkeyCallback, HotkeyManager};
 use log::debug;
 
+#[allow(dead_code)]
 pub struct MacOSHotkeyManager {
     callback: Option<HotkeyCallback>,
 }
 
 impl MacOSHotkeyManager {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self { callback: None }
     }

@@ -1,6 +1,6 @@
 use notify::{Watcher, RecursiveMode, Result as NotifyResult, Event, EventKind};
 use std::path::PathBuf;
-use std::sync::{mpsc::{channel, Sender}, Arc, atomic::{AtomicBool, Ordering}};
+use std::sync::{mpsc::channel, Arc, atomic::{AtomicBool, Ordering}};
 use tauri::{AppHandle, Emitter};
 use log::{debug, info};
 
@@ -23,6 +23,7 @@ impl WatcherControl {
     }
     
     /// Check if watcher is currently enabled
+    #[allow(dead_code)]
     pub fn is_enabled(&self) -> bool {
         self.enabled.load(Ordering::SeqCst)
     }

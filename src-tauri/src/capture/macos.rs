@@ -7,6 +7,7 @@ use log::{debug, info};
 
 pub struct ScreenCapturer {
     output_folder: PathBuf,
+    #[allow(dead_code)]
     is_recording: bool,
     start_time: Option<Instant>,
     recorder: Option<Recorder>,
@@ -71,6 +72,7 @@ impl ScreenCapturer {
     }
 
     /// Request screen recording permission
+    #[allow(dead_code)]
     pub async fn request_permission() -> Result<bool, String> {
         // On macOS, ScreenCaptureKit will prompt for permission when needed
         debug!("📸 Screen recording permission will be requested on first capture");
@@ -166,6 +168,7 @@ impl ScreenCapturer {
     }
 
     /// Get the most recently created recording path
+    #[allow(dead_code)]
     fn get_last_created_path(&self) -> PathBuf {
         // Find the highest numbered recording that exists
         let mut n = 1;
@@ -184,11 +187,13 @@ impl ScreenCapturer {
     }
 
     /// Check if currently recording
+    #[allow(dead_code)]
     pub fn is_recording(&self) -> bool {
         self.is_recording
     }
 
     /// Get recording duration (if recording)
+    #[allow(dead_code)]
     pub fn duration(&self) -> f64 {
         if let Some(recorder) = &self.recorder {
             recorder.duration()

@@ -5,7 +5,7 @@
 
 pub mod bridge;
 use bridge::ScreenCaptureRecorder;
-use crate::{RecordingConfig, CaptureRegion};
+use crate::RecordingConfig;
 use log::{info, debug, warn, error};
 use std::ffi::CStr;
 use std::os::raw::c_char;
@@ -62,6 +62,7 @@ pub extern "C" fn rust_log_error(msg: *const c_char) {
 
 pub struct NativeRecorder {
     recorder: Option<ScreenCaptureRecorder>,
+    #[allow(dead_code)]
     config: RecordingConfig,
 }
 

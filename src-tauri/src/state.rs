@@ -14,6 +14,7 @@ pub struct AppState {
     pub mic_enabled: Mutex<bool>,
     pub selected_audio_device: Mutex<Option<String>>, // Audio device ID
     pub clip_count: Mutex<u32>,
+    #[allow(dead_code)]
     pub is_recording: Mutex<bool>,
     pub capturer: Mutex<Option<ScreenCapturer>>,
     pub capture_region: Mutex<Option<(u32, u32, u32, u32)>>, // x, y, width, height

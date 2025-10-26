@@ -1,6 +1,5 @@
 use tauri::{State, AppHandle, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
-use tauri::utils::config::Color;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use crate::state::AppState;
@@ -90,7 +89,7 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                     let _ = events::emit_status(app, "recording");
                     
                     // Check if we already have a pre-initialized capturer
-                    let mut capturer_ready = {
+                    let capturer_ready = {
                         let cap = state.capturer.lock().unwrap();
                         cap.is_some()
                     };
@@ -109,7 +108,7 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                             };
                             
                             // Take capturer from state
-                            let mut capturer_option = {
+                            let capturer_option = {
                                 let mut cap = state.capturer.lock().unwrap();
                                 cap.take()
                             };
@@ -317,7 +316,7 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                                         project.clone()
                                     };
                                     
-                                    if let Some(project_name) = current_project {
+                                    if let Some(_project_name) = current_project {
                                         let filename = path.file_name()
                                             .and_then(|n| n.to_str())
                                             .unwrap_or("recording.mp4")

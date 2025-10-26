@@ -6,13 +6,13 @@ pub mod macos;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
-pub use self::platform::*;
-
+#[allow(unused)]
 #[cfg(target_os = "macos")]
 mod platform {
     pub use super::macos::*;
 }
 
+#[allow(unused)]
 #[cfg(target_os = "windows")]
 mod platform {
     pub use super::windows::*;
