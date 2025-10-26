@@ -29,8 +29,17 @@ export interface AppSettings {
   aspectRatio: AspectRatio;
   scaleToPreset: boolean;
   micEnabled: boolean;
+  selectedAudioDevice?: string; // Audio device ID
   captureRegion?: CaptureRegion;
   currentProject?: string;
+}
+
+// Audio device types
+export interface AudioDevice {
+  id: string;
+  name: string;
+  is_default: boolean;
+  is_builtin: boolean;
 }
 
 // Project management types

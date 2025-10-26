@@ -44,6 +44,7 @@
 @property (nonatomic, strong) AVCaptureSession *audioSession;
 @property (nonatomic, strong) NSString *outputPath;
 @property (nonatomic, strong) NSString *lastError;
+@property (nonatomic, strong) NSString *audioDeviceID;  // User-selected audio device ID
 @property (nonatomic, assign) NSTimeInterval startTime;
 @property (nonatomic, assign) CMTime firstFrameTime;
 @property (nonatomic, assign) CMTime firstAudioTime;
@@ -61,7 +62,8 @@
                            fps:(uint32_t)f
                        quality:(uint32_t)q
                      displayID:(uint32_t)displayID
-                  captureAudio:(BOOL)captureAudio;
+                  captureAudio:(BOOL)captureAudio
+                audioDeviceID:(const char*)audioDeviceID;
 - (int32_t)start;
 - (int32_t)stop;
 - (double)duration;
@@ -76,7 +78,8 @@
                            fps:(uint32_t)f
                        quality:(uint32_t)q
                      displayID:(uint32_t)displayID
-                  captureAudio:(BOOL)captureAudio {
+                  captureAudio:(BOOL)captureAudio
+                audioDeviceID:(const char*)audioDeviceID {
     self = [super init];
     if (self) {
         _outputPath = [NSString stringWithUTF8String:path];
@@ -84,6 +87,7 @@
         _height = h;
         _fps = f;
         _captureAudio = captureAudio;
+        _audioDeviceID = audioDeviceID ? [NSString stringWithUTF8String:audioDeviceID] : nil;
         _isRecording = NO;
         _hasFirstFrame = NO;
         _hasFirstAudio = NO;
@@ -238,11 +242,15 @@
     }
     [_assetWriter startSessionAtSourceTime:kCMTimeZero];
     
-    // Reset first frame tracking
+    // Reset first frame tracking - use a common time base for both audio and video
     _hasFirstFrame = NO;
     _firstFrameTime = kCMTimeZero;
     _hasFirstAudio = NO;
     _firstAudioTime = kCMTimeZero;
+    
+    // CRITICAL: Set recording flag BEFORE starting capture so audio frames aren't dropped
+    _isRecording = YES;
+    _startTime = [NSDate timeIntervalSinceReferenceDate];
     
     // Audio session is already running from pre-init, no need to start it again
     if (_audioSession) {
@@ -253,10 +261,9 @@
     [_stream startCaptureWithCompletionHandler:^(NSError *error) {
         if (error) {
             weakSelf.lastError = [NSString stringWithFormat:@"Failed to start capture: %@", error.localizedDescription];
+            weakSelf.isRecording = NO; // Reset flag on error
             result = -1;
         } else {
-            weakSelf.isRecording = YES;
-            weakSelf.startTime = [NSDate timeIntervalSinceReferenceDate];
             result = 0;
         }
         dispatch_semaphore_signal(semaphore);
@@ -315,11 +322,57 @@
 - (void)setupAudioCapture {
     _audioSession = [[AVCaptureSession alloc] init];
     
-    // Get default microphone
-    AVCaptureDevice *audioDevice = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeAudio];
+    // Get all available audio devices
+    NSArray<AVCaptureDevice *> *allAudioDevices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeAudio];
+    
+    AVCaptureDevice *audioDevice = nil;
+    
+    // If user specified a device ID, try to find it
+    if (_audioDeviceID && _audioDeviceID.length > 0) {
+        for (AVCaptureDevice *device in allAudioDevices) {
+            if ([device.uniqueID isEqualToString:_audioDeviceID]) {
+                audioDevice = device;
+                LOG_INFO(@"🎤 Using user-selected audio input: %@", audioDevice.localizedName);
+                break;
+            }
+        }
+        
+        // Warn if the specified device wasn't found
+        if (!audioDevice) {
+            LOG_WARN(@"⚠️ Specified audio device ID not found: %@, falling back to auto-select", _audioDeviceID);
+        }
+    }
+    
+    // Auto-select: Prefer built-in microphone over virtual audio devices
+    if (!audioDevice) {
+        // Look for "Built-in" or "MacBook" in the device name, or check for BuiltInMicrophoneDevice ID
+        for (AVCaptureDevice *device in allAudioDevices) {
+            NSString *deviceName = device.localizedName.lowercaseString;
+            NSString *deviceID = device.uniqueID;
+            
+            // Prioritize actual built-in microphones
+            if ([deviceID isEqualToString:@"BuiltInMicrophoneDevice"] ||
+                [deviceName containsString:@"built-in"] ||
+                [deviceName containsString:@"macbook"]) {
+                audioDevice = device;
+                break;
+            }
+        }
+    }
+    
+    // Fallback to default device if no built-in found
+    if (!audioDevice) {
+        audioDevice = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeAudio];
+    }
+    
     if (!audioDevice) {
         LOG_WARN(@"⚠️ No microphone found, continuing without audio");
         return;
+    }
+    
+    // Log the selected device (INFO level so it's always visible) - only if not already logged above
+    if (!_audioDeviceID || _audioDeviceID.length == 0) {
+        LOG_INFO(@"🎤 Using audio input: %@", audioDevice.localizedName);
     }
     
     NSError *error = nil;
@@ -356,20 +409,29 @@
 
 // AVCaptureAudioDataOutputSampleBufferDelegate method
 - (void)captureOutput:(AVCaptureOutput *)output didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer fromConnection:(AVCaptureConnection *)connection {
-    if (!_isRecording || !_audioInput) return;
+    if (!_isRecording || !_audioInput) {
+        return;
+    }
     
     if (_audioInput.readyForMoreMediaData) {
         // Get the original presentation timestamp
         CMTime originalTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
         
-        // On first audio frame, record the start time offset
-        if (!_hasFirstAudio) {
+        // On first audio frame, establish common time base (should match video)
+        // If video frame came first, use its time base; otherwise establish our own
+        if (!_hasFirstAudio && !_hasFirstFrame) {
+            _firstFrameTime = originalTime;  // Establish common time base
             _firstAudioTime = originalTime;
+            _hasFirstAudio = YES;
+            _hasFirstFrame = YES;  // Mark that we've established the time base
+        } else if (!_hasFirstAudio) {
+            // Video started first, sync to its time base
+            _firstAudioTime = _firstFrameTime;
             _hasFirstAudio = YES;
         }
         
-        // Calculate adjusted time (relative to first audio frame = zero)
-        CMTime adjustedTime = CMTimeSubtract(originalTime, _firstAudioTime);
+        // Calculate adjusted time (relative to common time base = zero)
+        CMTime adjustedTime = CMTimeSubtract(originalTime, _firstFrameTime);
         
         // Create new sample buffer with adjusted timestamp
         CMSampleBufferRef adjustedBuffer = NULL;
@@ -387,8 +449,14 @@
         );
         
         if (status == noErr && adjustedBuffer != NULL) {
-            [_audioInput appendSampleBuffer:adjustedBuffer];
+            BOOL success = [_audioInput appendSampleBuffer:adjustedBuffer];
+            if (!success) {
+                LOG_WARN(@"⚠️ Failed to append audio sample buffer");
+            } else {
+            }
             CFRelease(adjustedBuffer);
+        } else {
+            LOG_ERROR(@"❌ Failed to create adjusted audio sample buffer (status: %d)", status);
         }
     }
 }
@@ -447,7 +515,8 @@ SCRecorder* sc_recorder_create(
     uint32_t fps,
     uint32_t quality,
     uint32_t display_id,
-    bool capture_audio
+    bool capture_audio,
+    const char* audio_device_id
 ) {
     @autoreleasepool {
         SCRecorderImpl *impl = [[SCRecorderImpl alloc] initWithConfig:output_path
@@ -456,7 +525,8 @@ SCRecorder* sc_recorder_create(
                                                                    fps:fps
                                                                quality:quality
                                                              displayID:display_id
-                                                          captureAudio:capture_audio];
+                                                          captureAudio:capture_audio
+                                                         audioDeviceID:audio_device_id];
         if (!impl) {
             return NULL;
         }
@@ -522,3 +592,65 @@ const char* sc_recorder_last_error(SCRecorder* recorder) {
         return NULL;
     }
 }
+
+// Audio device management functions
+
+typedef struct {
+    char* device_id;
+    char* device_name;
+    bool is_default;
+    bool is_builtin;
+} AudioDeviceInfo;
+
+typedef struct {
+    AudioDeviceInfo* devices;
+    size_t count;
+} AudioDeviceList;
+
+AudioDeviceList* sc_get_audio_devices(void) {
+    @autoreleasepool {
+        NSArray<AVCaptureDevice *> *allDevices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeAudio];
+        AVCaptureDevice *defaultDevice = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeAudio];
+        
+        AudioDeviceList* list = (AudioDeviceList*)malloc(sizeof(AudioDeviceList));
+        list->count = allDevices.count;
+        list->devices = (AudioDeviceInfo*)calloc(list->count, sizeof(AudioDeviceInfo));
+        
+        for (size_t i = 0; i < allDevices.count; i++) {
+            AVCaptureDevice *device = allDevices[i];
+            
+            // Copy device ID
+            const char *idStr = [device.uniqueID UTF8String];
+            list->devices[i].device_id = strdup(idStr);
+            
+            // Copy device name
+            const char *nameStr = [device.localizedName UTF8String];
+            list->devices[i].device_name = strdup(nameStr);
+            
+            // Check if this is the default device
+            list->devices[i].is_default = [device.uniqueID isEqualToString:defaultDevice.uniqueID];
+            
+            // Check if this is a built-in microphone
+            NSString *deviceName = device.localizedName.lowercaseString;
+            NSString *deviceID = device.uniqueID;
+            list->devices[i].is_builtin = 
+                [deviceID isEqualToString:@"BuiltInMicrophoneDevice"] ||
+                [deviceName containsString:@"built-in"] ||
+                [deviceName containsString:@"macbook"];
+        }
+        
+        return list;
+    }
+}
+
+void sc_free_audio_device_list(AudioDeviceList* list) {
+    if (!list) return;
+    
+    for (size_t i = 0; i < list->count; i++) {
+        free(list->devices[i].device_id);
+        free(list->devices[i].device_name);
+    }
+    free(list->devices);
+    free(list);
+}
+

@@ -28,6 +28,7 @@ pub const SC_EVENT_FRAME: i32 = 3;
 extern "C" {
     // Create a new recorder
     // Returns NULL on failure
+    // audio_device_id: optional device unique ID (NULL for auto-select)
     pub fn sc_recorder_create(
         output_path: *const c_char,
         width: u32,
@@ -36,6 +37,7 @@ extern "C" {
         quality: u32,
         display_id: u32,
         capture_audio: bool,
+        audio_device_id: *const c_char,
     ) -> *mut SCRecorder;
     
     // Start recording
@@ -61,6 +63,76 @@ extern "C" {
     
     // Get last error message (NULL if no error)
     pub fn sc_recorder_last_error(recorder: *mut SCRecorder) -> *const c_char;
+    
+    // Audio device management
+    pub fn sc_get_audio_devices() -> *mut AudioDeviceList;
+    pub fn sc_free_audio_device_list(list: *mut AudioDeviceList);
+}
+
+// Audio device structures
+#[repr(C)]
+pub struct AudioDeviceInfo {
+    pub device_id: *mut c_char,
+    pub device_name: *mut c_char,
+    pub is_default: bool,
+    pub is_builtin: bool,
+}
+
+#[repr(C)]
+pub struct AudioDeviceList {
+    pub devices: *mut AudioDeviceInfo,
+    pub count: usize,
+}
+
+// Rust-safe audio device representation
+#[derive(Debug, Clone)]
+pub struct AudioDevice {
+    pub id: String,
+    pub name: String,
+    pub is_default: bool,
+    pub is_builtin: bool,
+}
+
+pub fn get_audio_devices() -> Result<Vec<AudioDevice>, String> {
+    unsafe {
+        let list_ptr = sc_get_audio_devices();
+        if list_ptr.is_null() {
+            return Err("Failed to get audio devices".to_string());
+        }
+        
+        let list = &*list_ptr;
+        let mut devices = Vec::with_capacity(list.count);
+        
+        for i in 0..list.count {
+            let device = &*list.devices.add(i);
+            
+            let id = if device.device_id.is_null() {
+                String::new()
+            } else {
+                std::ffi::CStr::from_ptr(device.device_id)
+                    .to_string_lossy()
+                    .to_string()
+            };
+            
+            let name = if device.device_name.is_null() {
+                String::new()
+            } else {
+                std::ffi::CStr::from_ptr(device.device_name)
+                    .to_string_lossy()
+                    .to_string()
+            };
+            
+            devices.push(AudioDevice {
+                id,
+                name,
+                is_default: device.is_default,
+                is_builtin: device.is_builtin,
+            });
+        }
+        
+        sc_free_audio_device_list(list_ptr);
+        Ok(devices)
+    }
 }
 
 // Safe Rust wrapper
@@ -80,9 +152,19 @@ impl ScreenCaptureRecorder {
         quality: u32,
         display_id: u32,
         capture_audio: bool,
+        audio_device_id: Option<&str>,
     ) -> Result<Self, String> {
         let path_cstr = CString::new(output_path)
             .map_err(|e| format!("Invalid path: {}", e))?;
+        
+        // Convert optional device ID to C string
+        let device_id_cstr = audio_device_id
+            .map(|id| CString::new(id).ok())
+            .flatten();
+        let device_id_ptr = device_id_cstr
+            .as_ref()
+            .map(|cs| cs.as_ptr())
+            .unwrap_or(ptr::null());
         
         let recorder = unsafe {
             sc_recorder_create(
@@ -93,6 +175,7 @@ impl ScreenCaptureRecorder {
                 quality,
                 display_id,
                 capture_audio,
+                device_id_ptr,
             )
         };
         

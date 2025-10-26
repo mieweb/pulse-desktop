@@ -11,6 +11,7 @@ cc = "1.0"
 
 [dependencies]
 log = "0.4"
+serde = { version = "1.0", features = ["derive"] }
 
 # macOS dependencies are linked via build.rs
 # Windows dependencies will be added when implementing Windows support

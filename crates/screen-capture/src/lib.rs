@@ -102,6 +102,40 @@ pub enum RecordingState {
     Stopped,
 }
 
+/// Audio device information
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AudioDevice {
+    pub id: String,
+    pub name: String,
+    pub is_default: bool,
+    pub is_builtin: bool,
+}
+
+/// Get list of available audio input devices
+pub fn get_audio_devices() -> Result<Vec<AudioDevice>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let devices = macos::bridge::get_audio_devices()?;
+        Ok(devices.into_iter().map(|d| AudioDevice {
+            id: d.id,
+            name: d.name,
+            is_default: d.is_default,
+            is_builtin: d.is_builtin,
+        }).collect())
+    }
+    
+    #[cfg(target_os = "windows")]
+    {
+        // TODO: Implement for Windows
+        Err("Audio device enumeration not yet implemented for Windows".to_string())
+    }
+    
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        Err("Audio device enumeration not supported on this platform".to_string())
+    }
+}
+
 /// Cross-platform screen recorder
 pub struct Recorder {
     native: NativeRecorder,

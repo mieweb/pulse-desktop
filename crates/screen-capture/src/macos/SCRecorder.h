@@ -28,6 +28,7 @@ typedef void (*SCRecorderCallback)(int32_t event, void* user_data);
 
 // Create a new recorder
 // Returns NULL on failure
+// audio_device_id: optional device unique ID (NULL for auto-select)
 SCRecorder* sc_recorder_create(
     const char* output_path,
     uint32_t width,
@@ -35,7 +36,8 @@ SCRecorder* sc_recorder_create(
     uint32_t fps,
     uint32_t quality,
     uint32_t display_id,
-    bool capture_audio
+    bool capture_audio,
+    const char* audio_device_id
 );
 
 // Start recording

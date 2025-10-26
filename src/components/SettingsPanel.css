@@ -144,6 +144,41 @@
   white-space: nowrap;
 }
 
+/* Audio Device Selector */
+.audio-device-select {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #e2e8f0;
+  background: #fafafa;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
+  color: #374151;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.audio-device-select:hover:not(:disabled) {
+  border-color: #3b82f6;
+  background: #f0f9ff;
+}
+
+.audio-device-select:focus {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+  border-color: #3b82f6;
+}
+
+.audio-device-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.audio-device-select option {
+  background: white;
+  color: #374151;
+  padding: 0.5rem;
+}
+
 /* Hotkey Instruction */
 .hotkey-instruction {
   display: flex;
@@ -226,6 +261,22 @@
 
   .toggle-input {
     accent-color: #60a5fa;
+  }
+
+  .audio-device-select {
+    border-color: #374151;
+    background: #111827;
+    color: #f9fafb;
+  }
+
+  .audio-device-select:hover:not(:disabled) {
+    border-color: #60a5fa;
+    background: #1e3a8a;
+  }
+
+  .audio-device-select option {
+    background: #1f2937;
+    color: #f9fafb;
   }
 
   .hotkey-instruction {

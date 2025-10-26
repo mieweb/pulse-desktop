@@ -18,8 +18,19 @@ use crate::capture::macos::ScreenCapturer;
 #[cfg(target_os = "windows")]
 use crate::capture::windows::ScreenCapturer;
 
+// Performance thresholds (in milliseconds)
+/// Expected maximum time from hotkey press to recording start (includes all overhead)
+/// This includes AVAssetWriter initialization, ScreenCaptureKit activation, and thread overhead
+pub const HOTKEY_TO_RECORDING_THRESHOLD_MS: u128 = 250;
+
 // Global state to track if we're currently recording
 static IS_RECORDING: AtomicBool = AtomicBool::new(false);
+
+// Global state to track if capturer is initializing (prevents recording during re-init)
+static IS_INITIALIZING: AtomicBool = AtomicBool::new(false);
+
+// Global state to track if recording has actually started (vs just initiated)
+static RECORDING_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 /// Setup global shortcut during app initialization
 pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
@@ -43,6 +54,13 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
             ShortcutState::Pressed => {
                 // Key pressed - start recording
                 if !IS_RECORDING.swap(true, Ordering::SeqCst) {
+                    // Check if capturer is still initializing
+                    if IS_INITIALIZING.load(Ordering::SeqCst) {
+                        warn!("⏳ Capturer still initializing from previous recording - please wait");
+                        IS_RECORDING.store(false, Ordering::SeqCst);
+                        return;
+                    }
+                    
                     let press_time = std::time::Instant::now();
                     info!("🎬 Starting recording at {:?}...", press_time);
                     
@@ -103,7 +121,10 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                                         let elapsed = press_time.elapsed();
                                         info!("✅ Screen capture started in {:?}", elapsed);
                                         
-                                        if elapsed.as_millis() > 250 {
+                                        // Mark recording as actually active now
+                                        RECORDING_ACTIVE.store(true, Ordering::SeqCst);
+                                        
+                                        if elapsed.as_millis() > HOTKEY_TO_RECORDING_THRESHOLD_MS {
                                             error!("⚠️  SLOW START DETECTED: {:?} from key press to recording started", elapsed);
                                             error!("💔 We sincerely apologize - you may have lost the first {:?} of your recording.", elapsed);
                                             error!("🔧 This should not happen with pre-initialization. Please report this issue.");
@@ -117,6 +138,7 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                                         error!("❌ Failed to start recording: {}", e);
                                         let _ = events::emit_error(&app_clone, "CAPTURE_ERROR", &e);
                                         IS_RECORDING.store(false, Ordering::SeqCst);
+                                        RECORDING_ACTIVE.store(false, Ordering::SeqCst); // Clear active flag on error
                                         let _ = events::emit_status(&app_clone, "idle");
                                         
                                         // Resume filesystem watcher on error
@@ -132,6 +154,7 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                                 error!("❌ Capturer was expected but not found!");
                                 let _ = events::emit_error(&app_clone, "CAPTURE_ERROR", "Capturer initialization failed");
                                 IS_RECORDING.store(false, Ordering::SeqCst);
+                                RECORDING_ACTIVE.store(false, Ordering::SeqCst); // Clear active flag on error
                                 let _ = events::emit_status(&app_clone, "idle");
                                 
                                 // Resume filesystem watcher
@@ -188,6 +211,12 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                                 *mic
                             };
                             
+                            // Get selected audio device from state
+                            let audio_device_id = {
+                                let device = state.selected_audio_device.lock().unwrap();
+                                device.clone()
+                            };
+                            
                             // Get capture region from state
                             let capture_region = {
                                 let region = state.capture_region.lock().unwrap();
@@ -195,7 +224,7 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                             };
                             
                             // Create capturer
-                            let mut capturer = ScreenCapturer::new(output_folder, mic_enabled);
+                            let mut capturer = ScreenCapturer::new(output_folder, mic_enabled, audio_device_id);
                             
                             // Start recording (blocking call)
                             let runtime = tokio::runtime::Runtime::new().unwrap();
@@ -205,6 +234,9 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                                     info!("✅ Screen capture started in {:?}", elapsed);
                                     error!("⏱️  Slow initialization took {:?} - user lost beginning of recording", elapsed);
                                     
+                                    // Mark recording as active
+                                    RECORDING_ACTIVE.store(true, Ordering::SeqCst);
+                                    
                                     // Store capturer in state
                                     let mut cap = state.capturer.lock().unwrap();
                                     *cap = Some(capturer);
@@ -213,6 +245,7 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                                     error!("❌ Failed to start recording: {}", e);
                                     let _ = events::emit_error(&app_clone, "CAPTURE_ERROR", &e);
                                     IS_RECORDING.store(false, Ordering::SeqCst);
+                                    RECORDING_ACTIVE.store(false, Ordering::SeqCst); // Clear active flag on error
                                     let _ = events::emit_status(&app_clone, "idle");
                                     
                                     // Resume filesystem watcher on error
@@ -233,6 +266,20 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
             ShortcutState::Released => {
                 // Key released - stop recording
                 if IS_RECORDING.swap(false, Ordering::SeqCst) {
+                    // Check if recording has actually started
+                    if !RECORDING_ACTIVE.load(Ordering::SeqCst) {
+                        warn!("⏳ Recording initiated but not yet started - waiting for it to begin...");
+                        // Wait a bit for recording to actually start (max 200ms)
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                        
+                        // Check again
+                        if !RECORDING_ACTIVE.load(Ordering::SeqCst) {
+                            warn!("⚠️  Recording never started, canceling...");
+                            let _ = events::emit_status(app, "idle");
+                            return;
+                        }
+                    }
+                    
                     info!("⏹️  Stopping recording...");
                     
                     // Immediately transition to idle to allow rapid re-recording
@@ -253,6 +300,9 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                             let runtime = tokio::runtime::Runtime::new().unwrap();
                             match runtime.block_on(capturer.stop_recording()) {
                                 Ok(path) => {
+                                    // Clear recording active flag
+                                    RECORDING_ACTIVE.store(false, Ordering::SeqCst);
+                                    
                                     info!("✅ Recording saved to: {:?}", path);
                                     
                                     // Increment clip count
@@ -307,17 +357,21 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                                         if let Some(_project_name) = current_project {
                                             info!("🔄 Re-initializing capturer for next recording...");
                                             
+                                            // Set initializing flag to prevent recording during re-init
+                                            IS_INITIALIZING.store(true, Ordering::SeqCst);
+                                            
                                             let output_folder = state.output_folder.lock().unwrap().clone();
                                             let mic_enabled = state.mic_enabled.lock().unwrap().clone();
+                                            let audio_device_id = state.selected_audio_device.lock().unwrap().clone();
                                             let capture_region = state.capture_region.lock().unwrap().clone();
                                             let project_folder = output_folder.join(_project_name);
                                             
                                             // Create new capturer
-                                            let mut new_capturer = ScreenCapturer::new(project_folder, mic_enabled);
+                                            let mut new_capturer = ScreenCapturer::new(project_folder, mic_enabled, audio_device_id);
                                             
-                                            // Pre-initialize in background
+                                            // Pre-initialize in background using Tauri's async runtime
                                             let app_for_spawn = app_clone.clone();
-                                            tokio::spawn(async move {
+                                            tauri::async_runtime::spawn(async move {
                                                 match new_capturer.pre_initialize(capture_region).await {
                                                     Ok(_) => {
                                                         info!("✅ Capturer re-initialized for next recording");
@@ -325,9 +379,14 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                                                         let state = app_for_spawn.state::<AppState>();
                                                         let mut cap = state.capturer.lock().unwrap();
                                                         *cap = Some(new_capturer);
+                                                        
+                                                        // Clear initializing flag - ready to record again
+                                                        IS_INITIALIZING.store(false, Ordering::SeqCst);
                                                     }
                                                     Err(e) => {
                                                         warn!("⚠️  Failed to re-initialize capturer: {}", e);
+                                                        // Clear initializing flag even on error
+                                                        IS_INITIALIZING.store(false, Ordering::SeqCst);
                                                     }
                                                 }
                                             });
@@ -346,6 +405,9 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                                     error!("❌ Failed to stop recording: {}", e);
                                     let _ = events::emit_error(&app_clone, "SAVE_ERROR", &e);
                                     
+                                    // Clear recording active flag even on error
+                                    RECORDING_ACTIVE.store(false, Ordering::SeqCst);
+                                    
                                     // Resume filesystem watcher even on error
                                     {
                                         let control = state.watcher_control.lock().unwrap();
@@ -357,6 +419,7 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                             }
                         } else {
                             warn!("⚠️  No active capturer to stop");
+                            RECORDING_ACTIVE.store(false, Ordering::SeqCst); // Clear flag even if no capturer
                         }
                     });
                 } else {
@@ -403,6 +466,29 @@ pub async fn set_mic_enabled(enabled: bool, state: State<'_, AppState>) -> Resul
     Ok(())
 }
 
+/// Get available audio input devices
+#[tauri::command]
+pub async fn get_audio_devices() -> Result<Vec<screen_capture::AudioDevice>, String> {
+    screen_capture::get_audio_devices()
+}
+
+/// Set selected audio device
+#[tauri::command]
+pub async fn set_audio_device(device_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    {
+        let mut device = state.selected_audio_device.lock()
+            .map_err(|e| format!("Failed to lock selected_audio_device: {}", e))?;
+        *device = Some(device_id.clone());
+    }
+    
+    info!("🎤 Audio device changed to: {}", device_id);
+    
+    // Re-initialize capturer with new device if we have a project selected
+    reinitialize_capturer_if_needed(state).await?;
+    
+    Ok(())
+}
+
 /// Helper function to re-initialize capturer when settings change
 async fn reinitialize_capturer_if_needed(state: State<'_, AppState>) -> Result<(), String> {
     let current_project = {
@@ -428,6 +514,12 @@ async fn reinitialize_capturer_if_needed(state: State<'_, AppState>) -> Result<(
             *mic
         };
         
+        let audio_device_id = {
+            let device = state.selected_audio_device.lock()
+                .map_err(|e| format!("Failed to lock selected_audio_device: {}", e))?;
+            device.clone()
+        };
+        
         let capture_region = {
             let region = state.capture_region.lock()
                 .map_err(|e| format!("Failed to lock capture_region: {}", e))?;
@@ -435,7 +527,7 @@ async fn reinitialize_capturer_if_needed(state: State<'_, AppState>) -> Result<(
         };
         
         // Create and pre-initialize new capturer
-        let mut capturer = ScreenCapturer::new(output_path, mic_enabled);
+        let mut capturer = ScreenCapturer::new(output_path, mic_enabled, audio_device_id);
         capturer.pre_initialize(capture_region).await
             .map_err(|e| format!("Failed to re-initialize recorder: {}", e))?;
         
@@ -509,6 +601,21 @@ pub async fn stop_recording(_state: State<'_, AppState>) -> Result<String, Strin
     debug!("Manual stop recording triggered");
     // TODO: Implement actual recording stop
     Ok("Recording stopped".to_string())
+}
+
+/// Performance settings structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PerformanceSettings {
+    /// Expected maximum time from hotkey press to recording start (includes all overhead)
+    pub hotkey_to_recording_threshold_ms: u128,
+}
+
+/// Get performance thresholds
+#[tauri::command]
+pub async fn get_performance_settings() -> Result<PerformanceSettings, String> {
+    Ok(PerformanceSettings {
+        hotkey_to_recording_threshold_ms: HOTKEY_TO_RECORDING_THRESHOLD_MS,
+    })
 }
 
 /// Open a folder in the system file explorer
@@ -875,11 +982,20 @@ pub async fn set_current_project(project_name: String, state: State<'_, AppState
     
     // Pre-initialize capturer for instant recording startup
     info!("⚡ Pre-initializing capturer for project: {}", project_name);
+    
+    // Set initializing flag
+    IS_INITIALIZING.store(true, Ordering::SeqCst);
+    
     let output_path = output_folder.join(&project_name);
     
     let mic_enabled = {
         let mic = state.mic_enabled.lock().map_err(|e| format!("Failed to lock mic_enabled: {}", e))?;
         *mic
+    };
+    
+    let audio_device_id = {
+        let device = state.selected_audio_device.lock().map_err(|e| format!("Failed to lock selected_audio_device: {}", e))?;
+        device.clone()
     };
     
     let capture_region = {
@@ -888,12 +1004,13 @@ pub async fn set_current_project(project_name: String, state: State<'_, AppState
     };
     
     // Create capturer
-    let mut capturer = ScreenCapturer::new(output_path, mic_enabled);
+    let mut capturer = ScreenCapturer::new(output_path, mic_enabled, audio_device_id);
     
     // Pre-initialize (this takes 2-3 seconds)
     capturer.pre_initialize(capture_region).await
         .map_err(|e| {
             warn!("⚠️  Failed to pre-initialize capturer: {}", e);
+            IS_INITIALIZING.store(false, Ordering::SeqCst); // Clear flag on error
             format!("Failed to pre-initialize recorder: {}", e)
         })?;
     
@@ -904,6 +1021,9 @@ pub async fn set_current_project(project_name: String, state: State<'_, AppState
         let mut cap = state.capturer.lock().map_err(|e| format!("Failed to lock capturer: {}", e))?;
         *cap = Some(capturer);
     }
+    
+    // Clear initializing flag - ready to record
+    IS_INITIALIZING.store(false, Ordering::SeqCst);
 
     Ok(())
 }

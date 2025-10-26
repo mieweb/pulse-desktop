@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::time::Instant;
 use screen_capture::{Recorder, RecordingConfig};
-use log::{debug, info, error};
+use log::{debug, info};
 
 pub struct ScreenCapturer {
     output_folder: PathBuf,
@@ -11,18 +11,20 @@ pub struct ScreenCapturer {
     start_time: Option<Instant>,
     recorder: Option<Recorder>,
     mic_enabled: bool,
+    audio_device_id: Option<String>,
     pre_initialized: bool,
     prepared_output_path: Option<PathBuf>,
 }
 
 impl ScreenCapturer {
-    pub fn new(output_folder: PathBuf, mic_enabled: bool) -> Self {
+    pub fn new(output_folder: PathBuf, mic_enabled: bool, audio_device_id: Option<String>) -> Self {
         Self {
             output_folder,
             is_recording: false,
             start_time: None,
             recorder: None,
             mic_enabled,
+            audio_device_id,
             pre_initialized: false,
             prepared_output_path: None,
         }
@@ -49,7 +51,7 @@ impl ScreenCapturer {
             quality: 80,
             capture_cursor: true,
             capture_microphone: self.mic_enabled,
-            microphone_device_id: None,
+            microphone_device_id: self.audio_device_id.clone(),
             display_id: Some(0),
             region: capture_region,
         };
@@ -103,11 +105,6 @@ impl ScreenCapturer {
 
             let startup_duration = start_time.elapsed();
             info!("▶️  Recording started in {:?}", startup_duration);
-            
-            if startup_duration.as_millis() > 100 {
-                error!("⚠️  SLOW START: {:?}", startup_duration);
-                error!("💔 We sincerely apologize - you may have lost the first {:?} of your recording.", startup_duration);
-            }
             
             self.is_recording = true;
             self.start_time = Some(Instant::now());

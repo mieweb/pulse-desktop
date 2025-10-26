@@ -3,7 +3,7 @@
 // This uses modern macOS APIs (10.15+) for efficient screen capture
 // directly to MP4 with hardware encoding.
 
-mod bridge;
+pub mod bridge;
 use bridge::ScreenCaptureRecorder;
 use crate::{RecordingConfig, CaptureRegion};
 use log::{info, debug, warn, error};
@@ -92,6 +92,7 @@ impl NativeRecorder {
             config.quality,
             display_id,
             config.capture_microphone,
+            config.microphone_device_id.as_deref(),
         )?;
         
         Ok(Self {
