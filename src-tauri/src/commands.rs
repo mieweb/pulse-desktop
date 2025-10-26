@@ -620,10 +620,27 @@ pub async fn get_performance_settings() -> Result<PerformanceSettings, String> {
 /// Open a folder in the system file explorer
 #[tauri::command]
 pub async fn open_folder(path: String) -> Result<(), String> {
+    // Expand ~ to home directory
+    let expanded_path = if path.starts_with("~/") {
+        if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
+            let home_path = std::path::PathBuf::from(home);
+            home_path.join(&path[2..]).to_string_lossy().to_string()
+        } else {
+            path.clone()
+        }
+    } else {
+        path.clone()
+    };
+    
+    // Verify folder exists
+    if !std::path::Path::new(&expanded_path).exists() {
+        return Err(format!("The folder {} does not exist.", expanded_path));
+    }
+    
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
-            .arg(&path)
+            .arg(&expanded_path)
             .spawn()
             .map_err(|e| format!("Failed to open folder: {}", e))?;
     }
@@ -631,7 +648,7 @@ pub async fn open_folder(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("explorer")
-            .arg(&path)
+            .arg(&expanded_path)
             .spawn()
             .map_err(|e| format!("Failed to open folder: {}", e))?;
     }
@@ -639,7 +656,7 @@ pub async fn open_folder(path: String) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
         std::process::Command::new("xdg-open")
-            .arg(&path)
+            .arg(&expanded_path)
             .spawn()
             .map_err(|e| format!("Failed to open folder: {}", e))?;
     }
@@ -650,10 +667,27 @@ pub async fn open_folder(path: String) -> Result<(), String> {
 /// Open a file with the system's default application
 #[tauri::command]
 pub async fn open_file(path: String) -> Result<(), String> {
+    // Expand ~ to home directory
+    let expanded_path = if path.starts_with("~/") {
+        if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
+            let home_path = std::path::PathBuf::from(home);
+            home_path.join(&path[2..]).to_string_lossy().to_string()
+        } else {
+            path.clone()
+        }
+    } else {
+        path.clone()
+    };
+    
+    // Verify file exists
+    if !std::path::Path::new(&expanded_path).exists() {
+        return Err(format!("The file {} does not exist.", expanded_path));
+    }
+    
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
-            .arg(&path)
+            .arg(&expanded_path)
             .spawn()
             .map_err(|e| format!("Failed to open file: {}", e))?;
     }
@@ -661,7 +695,7 @@ pub async fn open_file(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("cmd")
-            .args(&["/C", "start", "", &path])
+            .args(&["/C", "start", "", &expanded_path])
             .spawn()
             .map_err(|e| format!("Failed to open file: {}", e))?;
     }
@@ -669,7 +703,7 @@ pub async fn open_file(path: String) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
         std::process::Command::new("xdg-open")
-            .arg(&path)
+            .arg(&expanded_path)
             .spawn()
             .map_err(|e| format!("Failed to open file: {}", e))?;
     }
