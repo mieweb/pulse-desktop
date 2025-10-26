@@ -1,11 +1,22 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { useProjects } from '../hooks/useProjects';
+import type { Project } from '../types';
 import ClipsList from './ClipsList';
 import './ProjectPanel.css';
 
 interface ProjectPanelProps {
+  // Project data passed from parent (App.tsx)
+  projects: Project[];
+  currentProject: string | null;
+  loading: boolean;
+  error: string | null;
+  onCreateProject: (name: string) => Promise<void>;
+  onSetCurrentProject: (name: string) => Promise<void>;
+  onReconcileTimeline: (name: string) => Promise<number>;
+  onRefreshProjects: () => Promise<void>;
+  
+  // Other props
   onProjectChange?: (projectName: string) => void;
   clipCount?: number;
   outputFolder?: string;
@@ -14,22 +25,23 @@ interface ProjectPanelProps {
 }
 
 export function ProjectPanel({ 
+  // Destructure project data from props
+  projects,
+  currentProject,
+  loading,
+  error,
+  onCreateProject: createProject,
+  onSetCurrentProject: setCurrentProject,
+  onReconcileTimeline: reconcileProjectTimeline,
+  onRefreshProjects: refreshProjects,
+  
+  // Other props
   onProjectChange, 
   clipCount = 0, 
   outputFolder = '',
   debugDragDrop = false,
   debugAriaFocus = false
 }: ProjectPanelProps) {
-  const { 
-    projects, 
-    currentProject, 
-    loading, 
-    error, 
-    createProject, 
-    setCurrentProject,
-    reconcileProjectTimeline,
-    refreshProjects
-  } = useProjects();
   
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');

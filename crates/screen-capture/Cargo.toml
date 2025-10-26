@@ -10,6 +10,7 @@ license = "MIT"
 cc = "1.0"
 
 [dependencies]
+log = "0.4"
 
 # macOS dependencies are linked via build.rs
 # Windows dependencies will be added when implementing Windows support

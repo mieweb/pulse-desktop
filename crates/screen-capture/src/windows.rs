@@ -5,6 +5,7 @@
 
 use crate::{RecordingConfig, CaptureRegion};
 use std::path::PathBuf;
+use log::info;
 
 pub struct NativeRecorder {
     config: RecordingConfig,
@@ -23,7 +24,7 @@ impl NativeRecorder {
         // 3. Create Media Foundation sink writer
         // 4. Configure H.264 encoder
         
-        println!("🚧 Windows NativeRecorder initialization (Desktop Duplication)");
+        info!("🚧 Windows NativeRecorder initialization (Desktop Duplication - not yet implemented)");
         
         Ok(Self {
             config: config.clone(),
@@ -38,7 +39,7 @@ impl NativeRecorder {
         // 3. Write to sink writer
         
         self.start_time = Some(std::time::Instant::now());
-        println!("▶️  Recording started (native Windows)");
+        info!("▶️  Recording started (native Windows - stub)");
         Ok(())
     }
     
@@ -48,7 +49,7 @@ impl NativeRecorder {
         // 2. Finalize Media Foundation sink writer
         // 3. Close file
         
-        println!("⏹️  Recording stopped (native Windows)");
+        info!("⏹️  Recording stopped (native Windows - stub)");
         self.start_time = None;
         Ok(())
     }

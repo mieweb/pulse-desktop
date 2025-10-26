@@ -34,23 +34,27 @@ pub fn init() {
             *last_date = Some(current_date);
 
             if show_date {
-                // Show full date and time
+                // Show full date and time with module path and location
                 writeln!(
                     buf,
-                    "{} [+{} ms] [{}] - {}",
+                    "{} [+{} ms] [{}] [{}:{}] - {}",
                     now_datetime.format("%Y-%m-%d %H:%M:%S%.3f"),
                     delta,
                     record.level(),
+                    record.target(),
+                    record.line().unwrap_or(0),
                     record.args()
                 )
             } else {
-                // Show only time
+                // Show only time with module path and location
                 writeln!(
                     buf,
-                    "{} [+{} ms] [{}] - {}",
+                    "{} [+{} ms] [{}] [{}:{}] - {}",
                     now_datetime.format("%H:%M:%S%.3f"),
                     delta,
                     record.level(),
+                    record.target(),
+                    record.line().unwrap_or(0),
                     record.args()
                 )
             }

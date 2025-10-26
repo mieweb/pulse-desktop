@@ -103,7 +103,7 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                                         let elapsed = press_time.elapsed();
                                         info!("✅ Screen capture started in {:?}", elapsed);
                                         
-                                        if elapsed.as_millis() > 100 {
+                                        if elapsed.as_millis() > 250 {
                                             error!("⚠️  SLOW START DETECTED: {:?} from key press to recording started", elapsed);
                                             error!("💔 We sincerely apologize - you may have lost the first {:?} of your recording.", elapsed);
                                             error!("🔧 This should not happen with pre-initialization. Please report this issue.");

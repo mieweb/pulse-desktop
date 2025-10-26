@@ -6,6 +6,59 @@
 mod bridge;
 use bridge::ScreenCaptureRecorder;
 use crate::{RecordingConfig, CaptureRegion};
+use log::{info, debug, warn, error};
+use std::ffi::CStr;
+use std::os::raw::c_char;
+
+/// C-callable logging function for Objective-C code
+/// This allows Objective-C to log through Rust's log system with delta timestamps
+#[no_mangle]
+pub extern "C" fn rust_log_info(msg: *const c_char) {
+    if msg.is_null() {
+        return;
+    }
+    unsafe {
+        if let Ok(s) = CStr::from_ptr(msg).to_str() {
+            info!("{}", s);
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn rust_log_debug(msg: *const c_char) {
+    if msg.is_null() {
+        return;
+    }
+    unsafe {
+        if let Ok(s) = CStr::from_ptr(msg).to_str() {
+            debug!("{}", s);
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn rust_log_warn(msg: *const c_char) {
+    if msg.is_null() {
+        return;
+    }
+    unsafe {
+        if let Ok(s) = CStr::from_ptr(msg).to_str() {
+            warn!("{}", s);
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn rust_log_error(msg: *const c_char) {
+    if msg.is_null() {
+        return;
+    }
+    unsafe {
+        if let Ok(s) = CStr::from_ptr(msg).to_str() {
+            error!("{}", s);
+        }
+    }
+}
 
 pub struct NativeRecorder {
     recorder: Option<ScreenCaptureRecorder>,
@@ -14,7 +67,7 @@ pub struct NativeRecorder {
 
 impl NativeRecorder {
     pub fn new(config: &RecordingConfig) -> Result<Self, String> {
-        println!("🚀 Initializing macOS ScreenCaptureKit recorder");
+        info!("🚀 Initializing macOS ScreenCaptureKit recorder");
         
         // Get display dimensions
         // For now, use primary display dimensions (0 = main display)
@@ -50,7 +103,7 @@ impl NativeRecorder {
     pub fn start(&mut self) -> Result<(), String> {
         if let Some(recorder) = &mut self.recorder {
             recorder.start()?;
-            println!("▶️  ScreenCaptureKit recording started");
+            info!("▶️  ScreenCaptureKit recording started");
             Ok(())
         } else {
             Err("Recorder not initialized".to_string())
@@ -60,7 +113,7 @@ impl NativeRecorder {
     pub fn stop(&mut self) -> Result<(), String> {
         if let Some(recorder) = &mut self.recorder {
             recorder.stop()?;
-            println!("⏹️  ScreenCaptureKit recording stopped");
+            info!("⏹️  ScreenCaptureKit recording stopped");
             Ok(())
         } else {
             Err("Recorder not initialized".to_string())

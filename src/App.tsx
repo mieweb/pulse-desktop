@@ -16,7 +16,16 @@ import './App.css';
 function App() {
   const recordingState = useRecording();
   const { settings, updateSettings } = useSettings();
-  const { projects, currentProject, refreshProjects, createProject, setCurrentProject } = useProjects();
+  const { 
+    projects, 
+    currentProject, 
+    loading: projectsLoading,
+    error: projectsError,
+    refreshProjects, 
+    createProject, 
+    setCurrentProject,
+    reconcileProjectTimeline
+  } = useProjects();
 
   // Debug flags
   const [debugDragDrop, setDebugDragDrop] = useState(false);
@@ -246,6 +255,14 @@ function App() {
 
       <div className="main-controls">
         <ProjectPanel 
+          projects={projects}
+          currentProject={currentProject}
+          loading={projectsLoading}
+          error={projectsError}
+          onCreateProject={createProject}
+          onSetCurrentProject={setCurrentProject}
+          onReconcileTimeline={reconcileProjectTimeline}
+          onRefreshProjects={refreshProjects}
           clipCount={currentClipCount}
           outputFolder={settings.outputFolder}
           debugDragDrop={debugDragDrop}

@@ -12,9 +12,32 @@
 #import <CoreVideo/CoreVideo.h>
 #import "SCRecorder.h"
 
+// Logging macros that use Rust's logging system
+#define LOG_INFO(fmt, ...) do { \
+    NSString *msg = [NSString stringWithFormat:fmt, ##__VA_ARGS__]; \
+    rust_log_info([msg UTF8String]); \
+} while(0)
+
+#define LOG_DEBUG(fmt, ...) do { \
+    NSString *msg = [NSString stringWithFormat:fmt, ##__VA_ARGS__]; \
+    rust_log_debug([msg UTF8String]); \
+} while(0)
+
+#define LOG_WARN(fmt, ...) do { \
+    NSString *msg = [NSString stringWithFormat:fmt, ##__VA_ARGS__]; \
+    rust_log_warn([msg UTF8String]); \
+} while(0)
+
+#define LOG_ERROR(fmt, ...) do { \
+    NSString *msg = [NSString stringWithFormat:fmt, ##__VA_ARGS__]; \
+    rust_log_error([msg UTF8String]); \
+} while(0)
+
 @interface SCRecorderImpl : NSObject <SCStreamOutput, SCStreamDelegate, AVCaptureAudioDataOutputSampleBufferDelegate>
 
 @property (nonatomic, strong) SCStream *stream;
+@property (nonatomic, strong) SCContentFilter *filter;
+@property (nonatomic, strong) SCStreamConfiguration *streamConfig;
 @property (nonatomic, strong) AVAssetWriter *assetWriter;
 @property (nonatomic, strong) AVAssetWriterInput *videoInput;
 @property (nonatomic, strong) AVAssetWriterInput *audioInput;
@@ -122,6 +145,73 @@
                 return nil;
             }
         }
+        
+        // PRE-INITIALIZE ScreenCaptureKit (this is the slow part - 2-3 seconds)
+        // By doing this in init, start() will be instant
+        LOG_INFO(@"🚀 Pre-initializing ScreenCaptureKit (this takes 2-3 seconds)...");
+        dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+        __block BOOL initSuccess = NO;
+        
+        [SCShareableContent getShareableContentWithCompletionHandler:^(SCShareableContent *content, NSError *error) {
+            if (error) {
+                _lastError = [NSString stringWithFormat:@"Failed to get shareable content: %@", error.localizedDescription];
+                dispatch_semaphore_signal(semaphore);
+                return;
+            }
+            
+            // Get primary display
+            SCDisplay *display = content.displays.firstObject;
+            if (!display) {
+                _lastError = @"No displays found";
+                dispatch_semaphore_signal(semaphore);
+                return;
+            }
+            
+            // Create content filter for the display
+            _filter = [[SCContentFilter alloc] initWithDisplay:display
+                                               excludingWindows:@[]];
+            
+            // Configure stream
+            _streamConfig = [[SCStreamConfiguration alloc] init];
+            _streamConfig.width = _width;
+            _streamConfig.height = _height;
+            _streamConfig.minimumFrameInterval = CMTimeMake(1, _fps);
+            _streamConfig.queueDepth = 5;
+            _streamConfig.pixelFormat = kCVPixelFormatType_32BGRA;
+            _streamConfig.showsCursor = YES;
+            
+            // Create stream (but don't start it yet)
+            _stream = [[SCStream alloc] initWithFilter:_filter
+                                         configuration:_streamConfig
+                                              delegate:self];
+            
+            NSError *streamError = nil;
+            [_stream addStreamOutput:self
+                                type:SCStreamOutputTypeScreen
+                  sampleHandlerQueue:dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0)
+                               error:&streamError];
+            
+            if (streamError) {
+                _lastError = [NSString stringWithFormat:@"Failed to add stream output: %@", streamError.localizedDescription];
+            } else {
+                initSuccess = YES;
+                LOG_INFO(@"✅ ScreenCaptureKit pre-initialized successfully");
+            }
+            dispatch_semaphore_signal(semaphore);
+        }];
+        
+        // Wait for initialization to complete
+        dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
+        
+        if (!initSuccess) {
+            return nil;
+        }
+        
+        // Pre-initialize audio capture if requested (this is also slow ~700ms)
+        if (captureAudio) {
+            LOG_INFO(@"🎤 Pre-initializing audio capture...");
+            [self setupAudioCapture];
+        }
     }
     return self;
 }
@@ -132,91 +222,44 @@
         return -1;
     }
     
-    // Get available content
+    if (!_stream) {
+        _lastError = @"Stream not initialized - call init first";
+        return -1;
+    }
+    
     __block SCRecorderImpl *weakSelf = self;
     dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
     __block int32_t result = 0;
     
-    [SCShareableContent getShareableContentWithCompletionHandler:^(SCShareableContent *content, NSError *error) {
+    // Start asset writer
+    if (![_assetWriter startWriting]) {
+        _lastError = [NSString stringWithFormat:@"Failed to start writing: %@", _assetWriter.error];
+        return -1;
+    }
+    [_assetWriter startSessionAtSourceTime:kCMTimeZero];
+    
+    // Reset first frame tracking
+    _hasFirstFrame = NO;
+    _firstFrameTime = kCMTimeZero;
+    _hasFirstAudio = NO;
+    _firstAudioTime = kCMTimeZero;
+    
+    // Audio session is already running from pre-init, no need to start it again
+    if (_audioSession) {
+        LOG_DEBUG(@"🎤 Audio capture ready (already running)");
+    }
+    
+    // Start capture (should be instant since stream and audio are already initialized)
+    [_stream startCaptureWithCompletionHandler:^(NSError *error) {
         if (error) {
-            weakSelf.lastError = [NSString stringWithFormat:@"Failed to get shareable content: %@", error.localizedDescription];
+            weakSelf.lastError = [NSString stringWithFormat:@"Failed to start capture: %@", error.localizedDescription];
             result = -1;
-            dispatch_semaphore_signal(semaphore);
-            return;
+        } else {
+            weakSelf.isRecording = YES;
+            weakSelf.startTime = [NSDate timeIntervalSinceReferenceDate];
+            result = 0;
         }
-        
-        // Get primary display
-        SCDisplay *display = content.displays.firstObject;
-        if (!display) {
-            weakSelf.lastError = @"No displays found";
-            result = -1;
-            dispatch_semaphore_signal(semaphore);
-            return;
-        }
-        
-        // Create content filter for the display
-        SCContentFilter *filter = [[SCContentFilter alloc] initWithDisplay:display
-                                                            excludingWindows:@[]];
-        
-        // Configure stream
-        SCStreamConfiguration *config = [[SCStreamConfiguration alloc] init];
-        config.width = weakSelf.width;
-        config.height = weakSelf.height;
-        config.minimumFrameInterval = CMTimeMake(1, weakSelf.fps);
-        config.queueDepth = 5;
-        config.pixelFormat = kCVPixelFormatType_32BGRA;
-        config.showsCursor = YES;
-        
-        // Create stream
-        weakSelf.stream = [[SCStream alloc] initWithFilter:filter
-                                             configuration:config
-                                                  delegate:weakSelf];
-        
-        NSError *streamError = nil;
-        [weakSelf.stream addStreamOutput:weakSelf
-                                    type:SCStreamOutputTypeScreen
-                      sampleHandlerQueue:dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0)
-                                   error:&streamError];
-        
-        if (streamError) {
-            weakSelf.lastError = [NSString stringWithFormat:@"Failed to add stream output: %@", streamError.localizedDescription];
-            result = -1;
-            dispatch_semaphore_signal(semaphore);
-            return;
-        }
-        
-        // Start asset writer
-        if (![weakSelf.assetWriter startWriting]) {
-            weakSelf.lastError = [NSString stringWithFormat:@"Failed to start writing: %@", weakSelf.assetWriter.error];
-            result = -1;
-            dispatch_semaphore_signal(semaphore);
-            return;
-        }
-        [weakSelf.assetWriter startSessionAtSourceTime:kCMTimeZero];
-        
-        // Reset first frame tracking
-        weakSelf.hasFirstFrame = NO;
-        weakSelf.firstFrameTime = kCMTimeZero;
-        weakSelf.hasFirstAudio = NO;
-        weakSelf.firstAudioTime = kCMTimeZero;
-        
-        // Setup audio capture if requested
-        if (weakSelf.captureAudio) {
-            [weakSelf setupAudioCapture];
-        }
-        
-        // Start capture
-        [weakSelf.stream startCaptureWithCompletionHandler:^(NSError *error) {
-            if (error) {
-                weakSelf.lastError = [NSString stringWithFormat:@"Failed to start capture: %@", error.localizedDescription];
-                result = -1;
-            } else {
-                weakSelf.isRecording = YES;
-                weakSelf.startTime = [NSDate timeIntervalSinceReferenceDate];
-                result = 0;
-            }
-            dispatch_semaphore_signal(semaphore);
-        }];
+        dispatch_semaphore_signal(semaphore);
     }];
     
     // Wait for completion
@@ -275,21 +318,21 @@
     // Get default microphone
     AVCaptureDevice *audioDevice = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeAudio];
     if (!audioDevice) {
-        NSLog(@"⚠️ No microphone found, continuing without audio");
+        LOG_WARN(@"⚠️ No microphone found, continuing without audio");
         return;
     }
     
     NSError *error = nil;
     AVCaptureDeviceInput *audioInput = [AVCaptureDeviceInput deviceInputWithDevice:audioDevice error:&error];
     if (error || !audioInput) {
-        NSLog(@"⚠️ Failed to create audio input: %@", error.localizedDescription);
+        LOG_WARN(@"⚠️ Failed to create audio input: %@", error.localizedDescription);
         return;
     }
     
     if ([_audioSession canAddInput:audioInput]) {
         [_audioSession addInput:audioInput];
     } else {
-        NSLog(@"⚠️ Cannot add audio input to session");
+        LOG_WARN(@"⚠️ Cannot add audio input to session");
         return;
     }
     
@@ -301,13 +344,14 @@
     if ([_audioSession canAddOutput:audioOutput]) {
         [_audioSession addOutput:audioOutput];
     } else {
-        NSLog(@"⚠️ Cannot add audio output to session");
+        LOG_WARN(@"⚠️ Cannot add audio output to session");
         return;
     }
     
-    // Start audio session
+    // Start the audio session during pre-init (this is the slow part ~150ms)
+    // By starting it now, actual recording start will be instant
     [_audioSession startRunning];
-    NSLog(@"🎤 Audio capture started");
+    LOG_INFO(@"✅ Audio capture session started and ready");
 }
 
 // AVCaptureAudioDataOutputSampleBufferDelegate method

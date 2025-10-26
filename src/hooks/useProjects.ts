@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { Project, ProjectTimeline } from '../types';
 
@@ -19,8 +19,19 @@ export function useProjects(): UseProjectsReturn {
   const [currentProject, setCurrentProjectState] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Track if we're currently initializing to prevent duplicate calls (React Strict Mode)
+  const initializingRef = useRef(false);
 
   const loadProjects = async () => {
+    // Prevent duplicate initialization from React Strict Mode
+    if (initializingRef.current) {
+      console.log('⏭️  Skipping duplicate loadProjects call (already initializing)');
+      return;
+    }
+    
+    initializingRef.current = true;
+    
     try {
       setLoading(true);
       setError(null);
@@ -47,6 +58,7 @@ export function useProjects(): UseProjectsReturn {
       setError(err as string);
     } finally {
       setLoading(false);
+      initializingRef.current = false;
     }
   };
 

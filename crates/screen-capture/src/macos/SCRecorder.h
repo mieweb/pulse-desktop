@@ -62,6 +62,13 @@ void sc_recorder_set_callback(
 // Get last error message (NULL if no error)
 const char* sc_recorder_last_error(SCRecorder* recorder);
 
+// Rust logging bridge functions
+// These allow Objective-C code to log through Rust's log system
+void rust_log_info(const char* msg);
+void rust_log_debug(const char* msg);
+void rust_log_warn(const char* msg);
+void rust_log_error(const char* msg);
+
 #ifdef __cplusplus
 }
 #endif

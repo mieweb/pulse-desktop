@@ -83,7 +83,6 @@ impl ScreenCapturer {
         }
 
         let start_time = Instant::now();
-        debug!("🎬 Starting native screen capture...");
         
         // Check if we have a pre-initialized recorder
         if !self.pre_initialized || self.recorder.is_none() {
@@ -92,7 +91,7 @@ impl ScreenCapturer {
         
         // Use the prepared output path from pre-initialization
         if let Some(ref output_path) = self.prepared_output_path {
-            debug!("💾 Output path: {:?}", output_path);
+            debug!("🎬 Starting native screen capture to path: {:?}", output_path);
         } else {
             return Err("No prepared output path available".to_string());
         }
