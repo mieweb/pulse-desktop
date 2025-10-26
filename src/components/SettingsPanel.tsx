@@ -1,7 +1,7 @@
-import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
-import type { AppSettings, CaptureMode, AspectRatio } from '../types';
-import './SettingsPanel.css';
+import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
+import type { AppSettings, CaptureMode, AspectRatio } from "../types";
+import "./SettingsPanel.css";
 
 interface SettingsPanelProps {
   settings: AppSettings;
@@ -19,29 +19,29 @@ export function SettingsPanel({
   const handleSelectFolder = async () => {
     try {
       // Get the current output folder from backend (will be absolute path)
-      const currentFolder = await invoke<string>('get_output_folder');
-      
+      const currentFolder = await invoke<string>("get_output_folder");
+
       const selected = await open({
         directory: true,
         multiple: false,
         defaultPath: currentFolder,
-        title: 'Select Output Folder',
+        title: "Select Output Folder",
       });
-      
-      if (selected && typeof selected === 'string') {
+
+      if (selected && typeof selected === "string") {
         onSettingsChange({ outputFolder: selected });
-        await invoke('set_output_folder', { path: selected });
+        await invoke("set_output_folder", { path: selected });
       }
     } catch (error) {
-      console.error('Failed to select folder:', error);
+      console.error("Failed to select folder:", error);
     }
   };
 
   const handleAuthorizeCapture = async () => {
     try {
-      await invoke('authorize_capture');
+      await invoke("authorize_capture");
     } catch (error) {
-      console.error('Failed to authorize capture:', error);
+      console.error("Failed to authorize capture:", error);
     }
   };
 
@@ -63,7 +63,7 @@ export function SettingsPanel({
   const handleMicToggle = () => {
     const newValue = !settings.micEnabled;
     onSettingsChange({ micEnabled: newValue });
-    invoke('set_mic_enabled', { enabled: newValue });
+    invoke("set_mic_enabled", { enabled: newValue });
   };
 
   return (
@@ -78,7 +78,10 @@ export function SettingsPanel({
             aria-label="Select output folder"
             title={settings.outputFolder}
           >
-            📁 <span className="folder-path">{settings.outputFolder.split('/').pop() || 'Movies'}</span>
+            📁{" "}
+            <span className="folder-path">
+              {settings.outputFolder.split("/").pop() || "Movies"}
+            </span>
           </button>
         </div>
         <div className="status-item clips-status">
@@ -95,45 +98,55 @@ export function SettingsPanel({
           <label className="setting-label">Capture Mode</label>
           <div className="button-group" role="group" aria-label="Capture mode">
             <button
-              onClick={() => handleCaptureModeChange('full')}
-              className={`capture-button ${settings.captureMode === 'full' ? 'active' : ''}`}
-              aria-pressed={settings.captureMode === 'full'}
+              onClick={() => handleCaptureModeChange("full")}
+              className={`capture-button ${
+                settings.captureMode === "full" ? "active" : ""
+              }`}
+              aria-pressed={settings.captureMode === "full"}
               title="Full Screen"
             >
               🖥️ Full Screen
             </button>
             <button
-              onClick={() => handleCaptureModeChange('region')}
-              className={`capture-button ${settings.captureMode === 'region' ? 'active' : ''}`}
-              aria-pressed={settings.captureMode === 'region'}
+              onClick={() => handleCaptureModeChange("region")}
+              className={`capture-button ${
+                settings.captureMode === "region" ? "active" : ""
+              }`}
+              aria-pressed={settings.captureMode === "region"}
               title="Region"
             >
               ✂️ Region
             </button>
           </div>
         </div>
-        
+
         <div className="setting-group">
           <label className="setting-label">Aspect Ratio</label>
           <div className="button-group" role="group" aria-label="Aspect ratio">
             <button
-              onClick={() => handleAspectChange('16:9')}
-              className={`aspect-button ${settings.aspectRatio === '16:9' ? 'active' : ''}`}
-              aria-pressed={settings.aspectRatio === '16:9'}
+              onClick={() => handleAspectChange("16:9")}
+              className={`aspect-button ${
+                settings.aspectRatio === "16:9" ? "active" : ""
+              }`}
+              aria-pressed={settings.aspectRatio === "16:9"}
             >
               16:9
             </button>
             <button
-              onClick={() => handleAspectChange('9:16')}
-              className={`aspect-button ${settings.aspectRatio === '9:16' ? 'active' : ''}`}
-              aria-pressed={settings.aspectRatio === '9:16'}
+              onClick={() => handleAspectChange("9:16")}
+              className={`aspect-button ${
+                settings.aspectRatio === "9:16" ? "active" : ""
+              }`}
+              aria-pressed={settings.aspectRatio === "9:16"}
             >
               9:16
             </button>
             <button
-              onClick={() => handleAspectChange('none')}
-              className={`aspect-button ${settings.aspectRatio === 'none' ? 'active' : ''}`}
-              aria-pressed={settings.aspectRatio === 'none'}
+              onClick={() => handleAspectChange("none")}
+              className={`aspect-button ${
+                settings.aspectRatio === "none" ? "active" : ""
+              }`}
+              aria-pressed={settings.aspectRatio === "none"}
             >
               Free
             </button>
@@ -183,9 +196,11 @@ export function SettingsPanel({
       {/* Hotkey instruction */}
       <div className="hotkey-instruction">
         <div className="hotkey-badge">
-          {navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+Shift+R
+          {navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}+Shift+R
         </div>
-        <span className="instruction-text">Hold to record • Release to save</span>
+        <span className="instruction-text">
+          Hold for 300ms to record • Release to save
+        </span>
       </div>
     </div>
   );

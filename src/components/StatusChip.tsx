@@ -1,25 +1,27 @@
-import type { RecordingStatus } from '../types';
-import './StatusChip.css';
+import type { RecordingStatus } from "../types";
+import "./StatusChip.css";
 
 interface StatusChipProps {
   status: RecordingStatus;
 }
 
 export function StatusChip({ status }: StatusChipProps) {
-  console.log('🎬 StatusChip rendering with status:', status);
-  
+  console.log("🎬 StatusChip rendering with status:", status);
+
   const getStatusDisplay = () => {
     switch (status) {
-      case 'idle':
-        return { text: 'Idle', className: 'status-idle' };
-      case 'recording':
-        return { text: 'Recording', className: 'status-recording' };
-      case 'saving':
-        return { text: 'Saving...', className: 'status-saving' };
-      case 'error':
-        return { text: 'Error', className: 'status-error' };
+      case "idle":
+        return { text: "Idle", className: "status-idle" };
+      case "preparing":
+        return { text: "Preparing...", className: "status-preparing" };
+      case "recording":
+        return { text: "Recording", className: "status-recording" };
+      case "saving":
+        return { text: "Saving...", className: "status-saving" };
+      case "error":
+        return { text: "Error", className: "status-error" };
       default:
-        return { text: 'Unknown', className: '' };
+        return { text: "Unknown", className: "" };
     }
   };
 
