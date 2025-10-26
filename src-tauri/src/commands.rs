@@ -5,6 +5,9 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use crate::state::AppState;
 use crate::events;
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::collections::HashMap;
 
 #[cfg(target_os = "macos")]
 use crate::capture::macos::ScreenCapturer;
@@ -38,6 +41,22 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                 // Key pressed - start recording
                 if !IS_RECORDING.swap(true, Ordering::SeqCst) {
                     println!("🎬 Starting recording...");
+                    
+                    // Check if we have a current project before starting
+                    let state = app.state::<AppState>();
+                    let current_project = {
+                        let project = state.current_project.lock().unwrap();
+                        project.clone()
+                    };
+                    
+                    // If no project is selected, emit event and stop recording
+                    if current_project.is_none() {
+                        println!("⚠️  No project selected - requesting project name");
+                        let _ = events::emit_project_required(app);
+                        IS_RECORDING.store(false, Ordering::SeqCst);
+                        return;
+                    }
+                    
                     let _ = events::emit_status(app, "recording");
                     
                     // Start actual screen capture in background thread
@@ -45,11 +64,16 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                     std::thread::spawn(move || {
                         let state = app_clone.state::<AppState>();
                         
-                        // Get output folder
-                        let output_folder = {
+                        // Get output folder and current project
+                        let (base_output_folder, current_project) = {
                             let folder = state.output_folder.lock().unwrap();
-                            folder.clone()
+                            let project = state.current_project.lock().unwrap();
+                            (folder.clone(), project.clone())
                         };
+                        
+                        // At this point we know current_project is Some(), so unwrap is safe
+                        let project_name = current_project.unwrap();
+                        let output_folder = base_output_folder.join(&project_name);
                         
                         // Create output folder if it doesn't exist
                         if let Err(e) = std::fs::create_dir_all(&output_folder) {
@@ -125,6 +149,40 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                                     {
                                         let mut count = state.clip_count.lock().unwrap();
                                         *count += 1;
+                                    }
+                                    
+                                    // Add timeline entry if we have a current project
+                                    let current_project = {
+                                        let project = state.current_project.lock().unwrap();
+                                        project.clone()
+                                    };
+                                    
+                                    if let Some(project_name) = current_project {
+                                        let filename = path.file_name()
+                                            .and_then(|n| n.to_str())
+                                            .unwrap_or("recording.mp4")
+                                            .to_string();
+                                        
+                                        // TODO: Get actual recording parameters
+                                        let duration_ms = 1000; // Placeholder
+                                        let aspect_ratio = "none".to_string(); // Will be updated with actual aspect ratio
+                                        let width = 1920; // Will be updated with actual width
+                                        let height = 1080; // Will be updated with actual height
+                                        
+                                        // Add timeline entry using the runtime we have  
+                                        let app_handle_clone = app_clone.clone();
+                                        let _ = runtime.block_on(async {
+                                            if let Err(e) = add_timeline_entry(
+                                                filename,
+                                                duration_ms,
+                                                aspect_ratio,
+                                                width,
+                                                height,
+                                                app_handle_clone.state::<AppState>()
+                                            ).await {
+                                                eprintln!("Failed to add timeline entry: {}", e);
+                                            }
+                                        });
                                     }
                                     
                                     // Emit clip saved event
@@ -378,5 +436,508 @@ pub async fn close_region_selector(app: AppHandle) -> Result<(), String> {
         println!("⚠️ Region selector window not found");
     }
     
+    Ok(())
+}
+
+// Project management structures
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Project {
+    pub name: String,
+    pub created_at: String,
+    pub video_count: u32,
+    pub last_modified: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimelineEntry {
+    pub id: String,
+    pub filename: String,
+    pub recorded_at: String,
+    pub duration_ms: u64,
+    pub aspect_ratio: String,
+    pub resolution: Resolution,
+    pub mic_enabled: bool,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Resolution {
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectTimeline {
+    pub project_name: String,
+    pub created_at: String,
+    pub last_modified: String,
+    pub entries: Vec<TimelineEntry>,
+    pub metadata: TimelineMetadata,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimelineMetadata {
+    pub total_videos: u32,
+    pub total_duration: u64,
+    pub default_aspect_ratio: Option<String>,
+    pub tags: Option<Vec<String>>,
+}
+
+/// Get all available projects in the output folder
+#[tauri::command]
+pub async fn get_projects(state: State<'_, AppState>) -> Result<Vec<Project>, String> {
+    let output_folder = {
+        let folder = state.output_folder.lock().map_err(|e| format!("Failed to lock output folder: {}", e))?;
+        folder.clone()
+    };
+
+    let mut projects = Vec::new();
+
+    if !output_folder.exists() {
+        return Ok(projects);
+    }
+
+    let entries = fs::read_dir(&output_folder).map_err(|e| format!("Failed to read output folder: {}", e))?;
+
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+        let path = entry.path();
+
+        if path.is_dir() {
+            let project_name = path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("Unknown")
+                .to_string();
+
+            // Check for timeline.json file
+            let timeline_path = path.join("timeline.json");
+            
+            if timeline_path.exists() {
+                // Read timeline to get project info
+                match fs::read_to_string(&timeline_path) {
+                    Ok(content) => {
+                        match serde_json::from_str::<ProjectTimeline>(&content) {
+                            Ok(timeline) => {
+                                projects.push(Project {
+                                    name: project_name,
+                                    created_at: timeline.created_at,
+                                    video_count: timeline.metadata.total_videos,
+                                    last_modified: timeline.last_modified,
+                                });
+                            }
+                            Err(_) => {
+                                // Invalid timeline, create default project entry
+                                let now = chrono::Utc::now().to_rfc3339();
+                                projects.push(Project {
+                                    name: project_name,
+                                    created_at: now.clone(),
+                                    video_count: 0,
+                                    last_modified: now,
+                                });
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        // Can't read timeline, create default project entry
+                        let now = chrono::Utc::now().to_rfc3339();
+                        projects.push(Project {
+                            name: project_name,
+                            created_at: now.clone(),
+                            video_count: 0,
+                            last_modified: now,
+                        });
+                    }
+                }
+            } else {
+                // No timeline file, create default project entry
+                let now = chrono::Utc::now().to_rfc3339();
+                projects.push(Project {
+                    name: project_name,
+                    created_at: now.clone(),
+                    video_count: 0,
+                    last_modified: now,
+                });
+            }
+        }
+    }
+
+    // Sort projects by last modified date (newest first)
+    projects.sort_by(|a, b| b.last_modified.cmp(&a.last_modified));
+
+    Ok(projects)
+}
+
+/// Create a new project
+#[tauri::command]
+pub async fn create_project(project_name: String, state: State<'_, AppState>) -> Result<(), String> {
+    if project_name.trim().is_empty() {
+        return Err("Project name cannot be empty".to_string());
+    }
+
+    let project_name = project_name.trim().to_string();
+
+    // Validate project name (no special characters that would cause filesystem issues)
+    if project_name.contains(['/', '\\', ':', '*', '?', '"', '<', '>', '|']) {
+        return Err("Project name contains invalid characters".to_string());
+    }
+
+    let output_folder = {
+        let folder = state.output_folder.lock().map_err(|e| format!("Failed to lock output folder: {}", e))?;
+        folder.clone()
+    };
+
+    let project_folder = output_folder.join(&project_name);
+
+    if project_folder.exists() {
+        return Err("Project already exists".to_string());
+    }
+
+    // Create project folder
+    fs::create_dir_all(&project_folder).map_err(|e| format!("Failed to create project folder: {}", e))?;
+
+    // Create initial timeline.json
+    let now = chrono::Utc::now().to_rfc3339();
+    let timeline = ProjectTimeline {
+        project_name: project_name.clone(),
+        created_at: now.clone(),
+        last_modified: now,
+        entries: Vec::new(),
+        metadata: TimelineMetadata {
+            total_videos: 0,
+            total_duration: 0,
+            default_aspect_ratio: None,
+            tags: None,
+        },
+    };
+
+    let timeline_path = project_folder.join("timeline.json");
+    let timeline_json = serde_json::to_string_pretty(&timeline)
+        .map_err(|e| format!("Failed to serialize timeline: {}", e))?;
+
+    fs::write(&timeline_path, timeline_json)
+        .map_err(|e| format!("Failed to write timeline.json: {}", e))?;
+
+    // Set as current project
+    {
+        let mut current = state.current_project.lock().map_err(|e| format!("Failed to lock current project: {}", e))?;
+        *current = Some(project_name);
+    }
+
+    Ok(())
+}
+
+/// Set the current project
+#[tauri::command]
+pub async fn set_current_project(project_name: String, state: State<'_, AppState>) -> Result<(), String> {
+    let output_folder = {
+        let folder = state.output_folder.lock().map_err(|e| format!("Failed to lock output folder: {}", e))?;
+        folder.clone()
+    };
+
+    let project_folder = output_folder.join(&project_name);
+
+    if !project_folder.exists() {
+        return Err("Project does not exist".to_string());
+    }
+
+    {
+        let mut current = state.current_project.lock().map_err(|e| format!("Failed to lock current project: {}", e))?;
+        *current = Some(project_name);
+    }
+
+    Ok(())
+}
+
+/// Get the current project
+#[tauri::command]
+pub async fn get_current_project(state: State<'_, AppState>) -> Result<Option<String>, String> {
+    let current = state.current_project.lock().map_err(|e| format!("Failed to lock current project: {}", e))?;
+    Ok(current.clone())
+}
+
+/// Get timeline for a specific project
+#[tauri::command]
+pub async fn get_project_timeline(project_name: String, state: State<'_, AppState>) -> Result<ProjectTimeline, String> {
+    let output_folder = {
+        let folder = state.output_folder.lock().map_err(|e| format!("Failed to lock output folder: {}", e))?;
+        folder.clone()
+    };
+
+    let timeline_path = output_folder.join(&project_name).join("timeline.json");
+
+    if !timeline_path.exists() {
+        return Err("Timeline not found".to_string());
+    }
+
+    let content = fs::read_to_string(&timeline_path)
+        .map_err(|e| format!("Failed to read timeline: {}", e))?;
+
+    let timeline: ProjectTimeline = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse timeline: {}", e))?;
+
+    Ok(timeline)
+}
+
+/// Save timeline for a specific project
+#[tauri::command]
+pub async fn save_project_timeline(project_name: String, timeline: ProjectTimeline, state: State<'_, AppState>) -> Result<(), String> {
+    let output_folder = {
+        let folder = state.output_folder.lock().map_err(|e| format!("Failed to lock output folder: {}", e))?;
+        folder.clone()
+    };
+
+    let timeline_path = output_folder.join(&project_name).join("timeline.json");
+
+    // Update lastModified timestamp
+    let mut updated_timeline = timeline;
+    updated_timeline.last_modified = chrono::Utc::now().to_rfc3339();
+
+    let json = serde_json::to_string_pretty(&updated_timeline)
+        .map_err(|e| format!("Failed to serialize timeline: {}", e))?;
+
+    fs::write(&timeline_path, json)
+        .map_err(|e| format!("Failed to write timeline: {}", e))?;
+
+    Ok(())
+}
+
+/// Reconcile timeline with actual files in project folder
+#[tauri::command]
+pub async fn reconcile_project_timeline(project_name: String, state: State<'_, AppState>) -> Result<u32, String> {
+    let output_folder = {
+        let folder = state.output_folder.lock().map_err(|e| format!("Failed to lock output folder: {}", e))?;
+        folder.clone()
+    };
+
+    let project_folder = output_folder.join(&project_name);
+    let timeline_path = project_folder.join("timeline.json");
+
+    if !project_folder.exists() {
+        return Err("Project folder does not exist".to_string());
+    }
+
+    // Read existing timeline or create new one
+    let mut timeline = if timeline_path.exists() {
+        let content = fs::read_to_string(&timeline_path)
+            .map_err(|e| format!("Failed to read timeline: {}", e))?;
+        serde_json::from_str::<ProjectTimeline>(&content)
+            .map_err(|e| format!("Failed to parse timeline: {}", e))?
+    } else {
+        let now = chrono::Utc::now().to_rfc3339();
+        ProjectTimeline {
+            project_name: project_name.clone(),
+            created_at: now.clone(),
+            last_modified: now,
+            entries: Vec::new(),
+            metadata: TimelineMetadata {
+                total_videos: 0,
+                total_duration: 0,
+                default_aspect_ratio: None,
+                tags: None,
+            },
+        }
+    };
+
+    // Get all video files in the project folder
+    let entries = fs::read_dir(&project_folder).map_err(|e| format!("Failed to read project folder: {}", e))?;
+    
+    let mut video_files = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+        let path = entry.path();
+        
+        if path.is_file() {
+            if let Some(extension) = path.extension() {
+                let ext_str = extension.to_string_lossy().to_lowercase();
+                if matches!(ext_str.as_str(), "mp4" | "mov" | "avi" | "mkv" | "webm" | "m4v") {
+                    if let Some(filename) = path.file_name() {
+                        video_files.push(filename.to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    // Find files that are not in the timeline
+    let existing_filenames: std::collections::HashSet<String> = timeline.entries
+        .iter()
+        .map(|entry| entry.filename.clone())
+        .collect();
+
+    let mut orphaned_files = Vec::new();
+    for video_file in video_files {
+        if !existing_filenames.contains(&video_file) {
+            orphaned_files.push(video_file);
+        }
+    }
+
+    // Add orphaned files to timeline
+    let mut added_count = 0u32;
+    for filename in orphaned_files {
+        let file_path = project_folder.join(&filename);
+        
+        // Try to get file metadata
+        let metadata = fs::metadata(&file_path);
+        let (created_time, file_size) = if let Ok(meta) = metadata {
+            let created = meta.created().unwrap_or(std::time::SystemTime::now());
+            let size = meta.len();
+            (created, size)
+        } else {
+            (std::time::SystemTime::now(), 0)
+        };
+
+        // Convert system time to RFC3339 string
+        let created_rfc3339 = match created_time.duration_since(std::time::UNIX_EPOCH) {
+            Ok(duration) => {
+                let datetime = chrono::DateTime::<chrono::Utc>::from_timestamp(duration.as_secs() as i64, 0);
+                datetime.map(|dt| dt.to_rfc3339()).unwrap_or_else(|| chrono::Utc::now().to_rfc3339())
+            }
+            Err(_) => chrono::Utc::now().to_rfc3339(),
+        };
+
+        // Try to detect video properties from filename patterns
+        let (aspect_ratio, width, height) = detect_video_properties_from_filename(&filename);
+
+        // Create timeline entry for orphaned file
+        let entry_id = uuid::Uuid::new_v4().to_string();
+        let entry = TimelineEntry {
+            id: entry_id,
+            filename: filename.clone(),
+            recorded_at: created_rfc3339,
+            duration_ms: estimate_duration_from_file_size(file_size), // Rough estimate
+            aspect_ratio,
+            resolution: Resolution { width, height },
+            mic_enabled: true, // Default assumption
+            notes: Some("Added during timeline reconciliation".to_string()),
+        };
+
+        timeline.entries.push(entry);
+        added_count += 1;
+    }
+
+    // Sort entries by recorded_at timestamp
+    timeline.entries.sort_by(|a, b| a.recorded_at.cmp(&b.recorded_at));
+
+    // Update timeline metadata
+    timeline.last_modified = chrono::Utc::now().to_rfc3339();
+    timeline.metadata.total_videos = timeline.entries.len() as u32;
+    timeline.metadata.total_duration = timeline.entries.iter().map(|e| e.duration_ms).sum();
+
+    // Save updated timeline
+    let timeline_json = serde_json::to_string_pretty(&timeline)
+        .map_err(|e| format!("Failed to serialize timeline: {}", e))?;
+
+    fs::write(&timeline_path, timeline_json)
+        .map_err(|e| format!("Failed to write timeline.json: {}", e))?;
+
+    Ok(added_count)
+}
+
+// Helper function to detect video properties from filename
+fn detect_video_properties_from_filename(filename: &str) -> (String, u32, u32) {
+    let lower = filename.to_lowercase();
+    
+    // Look for common resolution patterns in filename
+    if lower.contains("1920x1080") || lower.contains("1080p") || lower.contains("fhd") {
+        ("16:9".to_string(), 1920, 1080)
+    } else if lower.contains("2560x1440") || lower.contains("1440p") || lower.contains("qhd") {
+        ("16:9".to_string(), 2560, 1440)
+    } else if lower.contains("3840x2160") || lower.contains("4k") || lower.contains("uhd") {
+        ("16:9".to_string(), 3840, 2160)
+    } else if lower.contains("1080x1920") || lower.contains("vertical") || lower.contains("portrait") {
+        ("9:16".to_string(), 1080, 1920)
+    } else if lower.contains("1440x2560") {
+        ("9:16".to_string(), 1440, 2560)
+    } else if lower.contains("2160x3840") {
+        ("9:16".to_string(), 2160, 3840)
+    } else {
+        // Default to common recording resolution
+        ("16:9".to_string(), 1920, 1080)
+    }
+}
+
+// Helper function to estimate duration from file size (very rough)
+fn estimate_duration_from_file_size(file_size: u64) -> u64 {
+    // Very rough estimate: assume ~1MB per second for typical screen recordings
+    // This is just a placeholder until we can read actual video metadata
+    let estimated_seconds = (file_size / (1024 * 1024)).max(1); // At least 1 second
+    estimated_seconds * 1000 // Convert to milliseconds
+}
+
+/// Add a recording entry to the current project's timeline
+#[tauri::command]
+pub async fn add_timeline_entry(
+    filename: String,
+    duration_ms: u64,
+    aspect_ratio: String,
+    width: u32,
+    height: u32,
+    state: State<'_, AppState>
+) -> Result<(), String> {
+    let (output_folder, current_project) = {
+        let folder = state.output_folder.lock().map_err(|e| format!("Failed to lock output folder: {}", e))?;
+        let project = state.current_project.lock().map_err(|e| format!("Failed to lock current project: {}", e))?;
+        (folder.clone(), project.clone())
+    };
+
+    let project_name = current_project.ok_or("No current project set")?;
+    let timeline_path = output_folder.join(&project_name).join("timeline.json");
+
+    // Read existing timeline or create new one
+    let mut timeline = if timeline_path.exists() {
+        let content = fs::read_to_string(&timeline_path)
+            .map_err(|e| format!("Failed to read timeline: {}", e))?;
+        serde_json::from_str::<ProjectTimeline>(&content)
+            .map_err(|e| format!("Failed to parse timeline: {}", e))?
+    } else {
+        let now = chrono::Utc::now().to_rfc3339();
+        ProjectTimeline {
+            project_name: project_name.clone(),
+            created_at: now.clone(),
+            last_modified: now,
+            entries: Vec::new(),
+            metadata: TimelineMetadata {
+                total_videos: 0,
+                total_duration: 0,
+                default_aspect_ratio: None,
+                tags: None,
+            },
+        }
+    };
+
+    // Get mic enabled state
+    let mic_enabled = {
+        let mic = state.mic_enabled.lock().map_err(|e| format!("Failed to lock mic enabled: {}", e))?;
+        *mic
+    };
+
+    // Create new entry
+    let entry_id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let entry = TimelineEntry {
+        id: entry_id,
+        filename,
+        recorded_at: now.clone(),
+        duration_ms,
+        aspect_ratio,
+        resolution: Resolution { width, height },
+        mic_enabled,
+        notes: None,
+    };
+
+    // Add entry and update metadata
+    timeline.entries.push(entry);
+    timeline.last_modified = now;
+    timeline.metadata.total_videos = timeline.entries.len() as u32;
+    timeline.metadata.total_duration = timeline.entries.iter().map(|e| e.duration_ms).sum();
+
+    // Save updated timeline
+    let timeline_json = serde_json::to_string_pretty(&timeline)
+        .map_err(|e| format!("Failed to serialize timeline: {}", e))?;
+
+    fs::write(&timeline_path, timeline_json)
+        .map_err(|e| format!("Failed to write timeline.json: {}", e))?;
+
     Ok(())
 }

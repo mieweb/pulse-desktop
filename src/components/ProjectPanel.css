@@ -1,0 +1,488 @@
+/* CSS Custom Properties for Theme Support */
+:root {
+  /* Light mode colors */
+  --color-bg-primary: #ffffff;
+  --color-bg-secondary: #f8f9fa;
+  --color-bg-tertiary: #e9ecef;
+  --color-text-primary: #212529;
+  --color-text-secondary: #6c757d;
+  --color-text-muted: #868e96;
+  --color-border-primary: #dee2e6;
+  --color-border-secondary: #ced4da;
+  --color-accent: #0066cc;
+  --color-accent-hover: #0052a3;
+  --color-accent-light: #e6f3ff;
+  --color-error: #dc3545;
+  --color-error-light: #f8d7da;
+  --color-success: #28a745;
+  --color-success-light: #d4edda;
+  
+  /* Focus and interaction colors */
+  --color-focus: #0066cc;
+  --color-focus-shadow: rgba(0, 102, 204, 0.25);
+  
+  /* Semantic spacing */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 20px;
+  
+  /* Border radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+}
+
+/* Dark mode colors */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg-primary: #1a1a1a;
+    --color-bg-secondary: #2d2d2d;
+    --color-bg-tertiary: #404040;
+    --color-text-primary: #ffffff;
+    --color-text-secondary: #d4d4d4;
+    --color-text-muted: #9d9d9d;
+    --color-border-primary: #404040;
+    --color-border-secondary: #525252;
+    --color-accent: #4a9eff;
+    --color-accent-hover: #357abd;
+    --color-accent-light: #1a3a5c;
+    --color-error: #ff6b6b;
+    --color-error-light: #4d1f1f;
+    --color-success: #51cf66;
+    --color-success-light: #1f4d23;
+    --color-focus: #4a9eff;
+    --color-focus-shadow: rgba(74, 158, 255, 0.25);
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  :root {
+    --color-bg-primary: #000000;
+    --color-bg-secondary: #000000;
+    --color-bg-tertiary: #1a1a1a;
+    --color-text-primary: #ffffff;
+    --color-text-secondary: #ffffff;
+    --color-text-muted: #cccccc;
+    --color-border-primary: #ffffff;
+    --color-border-secondary: #cccccc;
+    --color-accent: #66b3ff;
+    --color-accent-hover: #4d9fff;
+    --color-accent-light: #003366;
+    --color-focus: #66b3ff;
+    --color-focus-shadow: rgba(102, 179, 255, 0.5);
+  }
+}
+
+/* Project Selector Styles */
+.project-panel {
+  background: var(--color-bg-secondary);
+  border: 2px solid var(--color-border-primary);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  transition: all 0.2s ease;
+  max-width: 450px;
+  flex: 1;
+  min-width: 300px;
+}
+
+.project-panel:hover {
+  border-color: var(--color-border-secondary);
+  background: var(--color-bg-tertiary);
+}
+
+
+
+.project-error {
+  color: var(--color-error);
+  font-size: 12px;
+  background: var(--color-error-light);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-error);
+  font-weight: 500;
+  flex-basis: 100%;
+  margin-top: var(--space-xs);
+}
+
+.project-panel-loading {
+  color: var(--color-text-muted);
+  font-style: italic;
+  text-align: center;
+  padding: var(--space-xl);
+}
+
+.project-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.project-label {
+  font-weight: 600;
+  color: var(--color-text-primary);
+  font-size: 14px;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.clip-counter {
+  background: var(--color-accent-light);
+  color: var(--color-accent);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 12px;
+  line-height: 1;
+  min-width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+  border: 1px solid var(--color-accent);
+}
+
+.project-select {
+  background: var(--color-bg-primary);
+  border: 2px solid var(--color-border-primary);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  color: var(--color-text-primary);
+  font-size: 14px;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  flex: 1;
+  min-width: 180px;
+}
+
+.project-select:hover {
+  border-color: var(--color-accent);
+  background: var(--color-bg-secondary);
+}
+
+.project-select:focus {
+  outline: none;
+  border-color: var(--color-focus);
+  box-shadow: 0 0 0 3px var(--color-focus-shadow);
+}
+
+.project-select option {
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  padding: var(--space-sm);
+}
+
+.project-select option:hover {
+  background: var(--color-bg-secondary);
+}
+
+.create-new-option {
+  border-top: 1px solid var(--color-border-primary);
+  font-style: italic;
+  color: var(--color-accent) !important;
+  font-weight: 600;
+}
+
+.action-btn {
+  width: 36px;
+  height: 36px;
+  border: 2px solid var(--color-border-primary);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.action-btn:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-bg-primary);
+  transform: translateY(-1px);
+}
+
+.action-btn:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--color-focus-shadow);
+}
+
+.action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.browse-btn:hover:not(:disabled) {
+  background: var(--color-success);
+  border-color: var(--color-success);
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.reconcile-message {
+  margin-top: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  animation: fadeIn 0.3s ease;
+  text-align: center;
+}
+
+.reconcile-message--success {
+  background: var(--color-success-light);
+  border: 1px solid var(--color-success);
+  color: var(--color-success);
+}
+
+.reconcile-message--error {
+  background: var(--color-error-light);
+  border: 1px solid var(--color-error);
+  color: var(--color-error);
+}
+
+/* Create Project Form Styles */
+.create-project-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.create-project-input-group {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
+.create-project-input {
+  flex: 1;
+  background: var(--color-bg-primary);
+  border: 2px solid var(--color-border-primary);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  color: var(--color-text-primary);
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.create-project-input:hover {
+  border-color: var(--color-accent);
+  background: var(--color-bg-secondary);
+}
+
+.create-project-input:focus {
+  outline: none;
+  border-color: var(--color-focus);
+  box-shadow: 0 0 0 3px var(--color-focus-shadow);
+}
+
+.create-project-input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.create-project-actions {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.create-project-btn {
+  width: 36px;
+  height: 36px;
+  border: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: bold;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.create-project-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.create-project-btn:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--color-focus-shadow);
+}
+
+.create-project-btn.create {
+  background: var(--color-accent);
+  color: var(--color-bg-primary);
+  border-color: var(--color-accent);
+}
+
+.create-project-btn.create:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+  transform: translateY(-1px);
+}
+
+.create-project-btn.cancel {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-primary);
+}
+
+.create-project-btn.cancel:hover {
+  background: var(--color-bg-tertiary);
+  border-color: var(--color-border-secondary);
+  transform: translateY(-1px);
+}
+
+.create-project-error {
+  color: var(--color-error);
+  font-size: 12px;
+  background: var(--color-error-light);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-error);
+  margin-top: var(--space-xs);
+  font-weight: 500;
+}
+
+/* Responsive Design */
+@media (max-width: 480px) {
+  .project-panel {
+    padding: var(--space-md);
+  }
+  
+  .project-controls {
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+  }
+  
+  .project-select {
+    min-width: 160px;
+    font-size: 13px;
+    flex: 1;
+  }
+  
+  .action-btn {
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
+  }
+  
+  .create-project-input-group {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .create-project-actions {
+    justify-content: center;
+    align-self: center;
+  }
+}
+
+/* Animation for smooth transitions */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.project-details {
+  animation: fadeIn 0.3s ease;
+}
+
+.create-project-form {
+  animation: fadeIn 0.3s ease;
+}
+
+/* Focus management for accessibility */
+.project-panel:focus-within {
+  outline: 3px solid var(--color-focus-shadow);
+  outline-offset: 2px;
+}
+
+/* Forced colors mode support (Windows High Contrast) */
+@media (forced-colors: active) {
+  .project-panel {
+    border-color: ButtonBorder;
+    background: ButtonFace;
+  }
+  
+  .project-select {
+    border-color: ButtonBorder;
+    background: Field;
+    color: FieldText;
+  }
+  
+  .create-project-input {
+    border-color: ButtonBorder;
+    background: Field;
+    color: FieldText;
+  }
+  
+  .create-project-btn.create {
+    background: Highlight;
+    color: HighlightText;
+    border-color: Highlight;
+  }
+  
+  .create-project-btn.cancel {
+    background: ButtonFace;
+    color: ButtonText;
+    border-color: ButtonBorder;
+  }
+  
+  .project-error {
+    color: Mark;
+    background: MarkText;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .project-panel,
+  .project-select,
+  .create-project-input,
+  .create-project-btn {
+    transition: none;
+  }
+  
+  .project-details,
+  .create-project-form {
+    animation: none;
+  }
+  
+  .create-project-btn:hover {
+    transform: none;
+  }
+}
+
+/* Print styles */
+@media print {
+  .project-panel {
+    border: 2px solid black;
+    background: white;
+    box-shadow: none;
+  }
+  
+  .create-project-btn {
+    display: none;
+  }
+}

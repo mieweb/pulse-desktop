@@ -788,7 +788,7 @@
   "workspace": {
     "packageJson": {
       "dependencies": [
-        "npm:@tauri-apps/api@2",
+        "npm:@tauri-apps/api@^2.9.0",
         "npm:@tauri-apps/cli@2",
         "npm:@tauri-apps/plugin-dialog@2",
         "npm:@tauri-apps/plugin-opener@2",

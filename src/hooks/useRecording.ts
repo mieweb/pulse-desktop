@@ -31,7 +31,7 @@ export function useRecording() {
       setRecordingState((prev) => ({
         ...prev,
         // Don't change status - it's already set to idle by the recording-status event
-        clipCount: prev.clipCount + 1,
+        // clipCount is now managed by the project system, not here
         currentClipPath: event.payload.path,
       }));
     });

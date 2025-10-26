@@ -31,6 +31,10 @@ tokio = { version = "1", features = ["full"] }
 # Native screen capture (replaces screenshots + ffmpeg)
 screen-capture = { path = "../crates/screen-capture" }
 
-# Time tracking
-chrono = "0.4"
+# Time tracking and UUID generation
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
+
+# Filesystem watcher
+notify = "6.1"
 

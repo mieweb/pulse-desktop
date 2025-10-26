@@ -1,0 +1,287 @@
+/* Clips List - Compact Timeline View */
+
+.clips-list {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Screen reader only text */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+.clips-list.empty,
+.clips-list.loading {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.clips-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border-primary);
+}
+
+.clips-count {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.undo-redo-controls {
+  display: flex;
+  gap: 4px;
+}
+
+.undo-redo-btn {
+  padding: 4px 8px;
+  border: 1px solid var(--color-border-primary);
+  background: var(--color-bg-tertiary);
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.15s;
+  color: var(--color-text-primary);
+  min-width: 32px;
+}
+
+.undo-redo-btn:hover:not(:disabled) {
+  background: var(--color-bg-secondary);
+  border-color: var(--color-border-secondary);
+}
+
+.undo-redo-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.clips-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 600px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+/* Clip Wrapper - Contains clip row + drop indicator */
+.clip-wrapper {
+  position: relative;
+}
+
+/* Drop Indicator - Shows where dragged item will be inserted */
+.drop-indicator {
+  height: 6px;
+  margin: 8px 0;
+  padding: 0;
+  position: relative;
+  z-index: 10;
+  display: block;
+}
+
+.drop-indicator-line {
+  height: 4px;
+  background: var(--color-accent, #0066cc);
+  border-radius: 2px;
+  box-shadow: 0 0 8px var(--color-accent, #0066cc), 0 0 4px rgba(0, 102, 204, 0.6);
+  animation: pulse-drop 0.6s ease-in-out infinite;
+  display: block;
+}
+
+@keyframes pulse-drop {
+  0%, 100% {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scaleY(1.2);
+  }
+}
+
+/* Clip Row - Single timeline entry */
+.clip-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border-primary);
+  cursor: move;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.clip-row:hover {
+  background: var(--color-bg-secondary);
+  border-color: var(--color-border-secondary);
+}
+
+.clip-row:focus {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.clip-row.focused {
+  background: var(--color-bg-secondary);
+  border-color: var(--color-accent);
+}
+
+.clip-row.dragging {
+  opacity: 0.5;
+  transform: scale(0.98);
+  background: var(--color-bg-primary);
+}
+
+/* Drag Handle */
+.clip-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 36px;
+  cursor: grab;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  user-select: none;
+}
+
+.clip-drag-handle:active {
+  cursor: grabbing;
+}
+
+.clip-drag-handle span {
+  line-height: 1;
+}
+
+/* Thumbnail - 36px tall */
+.clip-thumbnail {
+  width: 64px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-primary);
+}
+
+.clip-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.clip-thumbnail-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+/* Details - Label and metadata */
+.clip-details {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.clip-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  cursor: text;
+  padding: 2px 4px;
+  border-radius: 2px;
+  transition: background-color 0.1s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.clip-label:hover {
+  background: var(--color-bg-secondary);
+}
+
+.clip-label-input {
+  font-size: 13px;
+  font-weight: 500;
+  padding: 2px 4px;
+  border: 1px solid var(--color-accent);
+  border-radius: 2px;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  outline: none;
+}
+
+.clip-metadata {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.clip-separator {
+  color: var(--color-border-secondary);
+}
+
+/* Action Buttons */
+.clip-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.clip-row:hover .clip-actions {
+  opacity: 1;
+}
+
+.clip-action-btn {
+  padding: 4px 8px;
+  border: 1px solid var(--color-border-primary);
+  background: var(--color-bg-tertiary);
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.15s;
+}
+
+.clip-action-btn:hover {
+  background: var(--color-bg-secondary);
+  border-color: var(--color-border-secondary);
+}
+
+.clip-action-btn.delete:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgb(239, 68, 68);
+  color: rgb(239, 68, 68);
+}
+
+/* Empty State */
+.empty-state {
+  font-size: 14px;
+  color: var(--color-text-muted);
+}

@@ -1,22 +1,87 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRecording } from './hooks/useRecording';
 import { useSettings } from './hooks/useSettings';
-import { StatusChip } from './components/StatusChip';
+
 import { SettingsPanel } from './components/SettingsPanel';
 import { RegionOverlay } from './components/RegionOverlay';
+import { ProjectPanel } from './components/ProjectPanel';
+import { ProjectNameModal } from './components/ProjectNameModal';
+import DebugControls from './components/DebugControls';
+import { useProjects } from './hooks/useProjects';
 import { invoke } from '@tauri-apps/api/core';
-import type { CaptureRegion } from './types';
+import { listen } from '@tauri-apps/api/event';
+import type { CaptureRegion, ClipSavedEvent } from './types';
 import './App.css';
 
 function App() {
   const recordingState = useRecording();
   const { settings, updateSettings } = useSettings();
+  const { projects, currentProject, refreshProjects, createProject, setCurrentProject } = useProjects();
+
+  // Debug flags
+  const [debugDragDrop, setDebugDragDrop] = useState(false);
+  const [debugAriaFocus, setDebugAriaFocus] = useState(false);
+
+  // Project name modal state
+  const [showProjectModal, setShowProjectModal] = useState(false);
+  const [projectModalError, setProjectModalError] = useState<string | undefined>();
+
+  // Calculate current project's clip count
+  const currentClipCount = useMemo(() => {
+    if (!currentProject) return 0;
+    const project = projects.find(p => p.name === currentProject);
+    return project?.videoCount || 0;
+  }, [currentProject, projects]);
 
   const [isRegionSelectorMode, setIsRegionSelectorMode] = useState(false);
   const [regionSelectorConfig, setRegionSelectorConfig] = useState<{
     aspectRatio: string;
     scaleToPreset: boolean;
   }>({ aspectRatio: 'none', scaleToPreset: false });
+
+  // Listen for clip saved events to refresh project data
+  useEffect(() => {
+    const unsubscribe = listen<ClipSavedEvent>('clip-saved', async () => {
+      // Refresh projects when a clip is saved to update video counts
+      await refreshProjects();
+    });
+
+    return () => {
+      unsubscribe.then((fn: () => void) => fn());
+    };
+  }, [refreshProjects]);
+
+  // Listen for project-required event (when recording starts without a project)
+  useEffect(() => {
+    const unsubscribe = listen('project-required', () => {
+      console.log('Project required event received - showing modal');
+      setShowProjectModal(true);
+      setProjectModalError(undefined);
+    });
+
+    return () => {
+      unsubscribe.then((fn: () => void) => fn());
+    };
+  }, []);
+
+  // Handle project creation from modal
+  const handleProjectSubmit = async (projectName: string) => {
+    try {
+      setProjectModalError(undefined);
+      await createProject(projectName);
+      await setCurrentProject(projectName);
+      setShowProjectModal(false);
+      console.log('Project created and set:', projectName);
+    } catch (err) {
+      console.error('Failed to create project:', err);
+      setProjectModalError(err as string);
+    }
+  };
+
+  const handleProjectCancel = () => {
+    setShowProjectModal(false);
+    setProjectModalError(undefined);
+  };
 
   // Check if this is the region selector window
   useEffect(() => {
@@ -153,16 +218,53 @@ function App() {
 
   return (
     <main className="container">
+      {/* Project Name Modal */}
+      <ProjectNameModal
+        isVisible={showProjectModal}
+        onSubmit={handleProjectSubmit}
+        onCancel={handleProjectCancel}
+        error={projectModalError}
+      />
+
       <header className="app-header">
         <h1>🎬 Pulse Desktop</h1>
-        <StatusChip status={recordingState.status} />
+        <div 
+          className={`recording-status status-${recordingState.status}`}
+          role="status"
+          aria-live="polite"
+          aria-label={`Recording status: ${recordingState.status}`}
+        >
+          <span className="status-indicator" />
+          <span className="status-text">
+            {recordingState.status === 'idle' && 'Idle'}
+            {recordingState.status === 'recording' && 'Recording'}
+            {recordingState.status === 'saving' && 'Saving...'}
+            {recordingState.status === 'error' && 'Error'}
+          </span>
+        </div>
       </header>
 
-      <SettingsPanel
-        settings={settings}
-        onSettingsChange={updateSettings}
-        onCaptureModeChange={handleCaptureModeChange}
-        clipCount={recordingState.clipCount}
+      <div className="main-controls">
+        <ProjectPanel 
+          clipCount={currentClipCount}
+          outputFolder={settings.outputFolder}
+          debugDragDrop={debugDragDrop}
+          debugAriaFocus={debugAriaFocus}
+        />
+
+        <SettingsPanel
+          settings={settings}
+          onSettingsChange={updateSettings}
+          onCaptureModeChange={handleCaptureModeChange}
+        />
+      </div>
+
+      {/* Debug Controls */}
+      <DebugControls
+        dragDropEnabled={debugDragDrop}
+        ariaFocusEnabled={debugAriaFocus}
+        onDragDropChange={setDebugDragDrop}
+        onAriaFocusChange={setDebugAriaFocus}
       />
 
       {recordingState.error && (

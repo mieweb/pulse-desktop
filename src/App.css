@@ -42,10 +42,23 @@ body, html {
 
 .app-header {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  gap: 0.5rem;
+  justify-content: center;
+  gap: 1rem;
   width: 100%;
+  flex-wrap: wrap;
+}
+
+.main-controls {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 1.5rem;
+  width: 100%;
+  max-width: 1000px;
+  flex-wrap: wrap;
 }
 
 .app-header h1 {
@@ -53,6 +66,95 @@ body, html {
   margin: 0;
   text-align: center;
   line-height: 1.2;
+}
+
+.recording-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.status-text {
+  line-height: 1;
+}
+
+/* Status variants */
+.status-idle {
+  background-color: rgba(156, 163, 175, 0.1);
+  color: #9ca3af;
+  border: 1px solid rgba(156, 163, 175, 0.3);
+}
+
+.status-idle .status-indicator {
+  background-color: #9ca3af;
+}
+
+.status-recording {
+  background-color: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  animation: recording-pulse 2s infinite;
+}
+
+.status-recording .status-indicator {
+  background-color: #ef4444;
+  animation: indicator-pulse 1s infinite;
+}
+
+.status-saving {
+  background-color: rgba(251, 191, 36, 0.1);
+  color: #f59e0b;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
+.status-saving .status-indicator {
+  background-color: #f59e0b;
+  animation: saving-spin 1s linear infinite;
+}
+
+.status-error {
+  background-color: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.status-error .status-indicator {
+  background-color: #ef4444;
+  animation: error-shake 0.5s ease-in-out;
+}
+
+/* Animations */
+@keyframes recording-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+@keyframes indicator-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.2); opacity: 0.8; }
+}
+
+@keyframes saving-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes error-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-2px); }
+  75% { transform: translateX(2px); }
 }
 
 .error-message {

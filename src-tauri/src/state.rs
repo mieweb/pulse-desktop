@@ -15,6 +15,7 @@ pub struct AppState {
     pub is_recording: Mutex<bool>,
     pub capturer: Mutex<Option<ScreenCapturer>>,
     pub capture_region: Mutex<Option<(u32, u32, u32, u32)>>, // x, y, width, height
+    pub current_project: Mutex<Option<String>>,
 }
 
 impl AppState {
@@ -40,6 +41,7 @@ impl AppState {
             is_recording: Mutex::new(false),
             capturer: Mutex::new(None),
             capture_region: Mutex::new(None), // Start with full screen (no region)
+            current_project: Mutex::new(None),
         }
     }
 }

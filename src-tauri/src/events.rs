@@ -45,3 +45,9 @@ pub fn emit_error(app: &AppHandle, code: &str, message: &str) -> Result<(), Stri
     )
     .map_err(|e| format!("Failed to emit error: {}", e))
 }
+
+/// Emit project required event to frontend (when recording starts without a project)
+pub fn emit_project_required(app: &AppHandle) -> Result<(), String> {
+    app.emit("project-required", ())
+        .map_err(|e| format!("Failed to emit project-required: {}", e))
+}

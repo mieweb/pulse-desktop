@@ -30,6 +30,43 @@ export interface AppSettings {
   scaleToPreset: boolean;
   micEnabled: boolean;
   captureRegion?: CaptureRegion;
+  currentProject?: string;
+}
+
+// Project management types
+export interface Project {
+  name: string;
+  createdAt: string;
+  videoCount: number;
+  lastModified: string;
+}
+
+export interface TimelineEntry {
+  id: string;
+  filename: string;
+  thumbnail?: string; // thumbnail filename (e.g., "thumbnail-1.png")
+  label?: string; // user-editable label
+  recordedAt: string;
+  durationMs: number;
+  deleted?: boolean; // soft delete flag
+  deletedAt?: string; // when it was deleted
+  aspectRatio: AspectRatio;
+  resolution: OutputResolution;
+  micEnabled: boolean;
+  notes?: string;
+}
+
+export interface ProjectTimeline {
+  projectName: string;
+  createdAt: string;
+  lastModified: string;
+  entries: TimelineEntry[];
+  metadata: {
+    totalVideos: number;
+    totalDuration: number;
+    defaultAspectRatio?: AspectRatio;
+    tags?: string[];
+  };
 }
 
 // Events from Rust backend

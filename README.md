@@ -33,6 +33,58 @@ Push-to-hold screen capture with the simplicity of a walkie-talkie. Press `Cmd+S
   - Download from [ffmpeg.org](https://ffmpeg.org/download.html)
   - Add to PATH
 
+## Quick Start
+
+### Prerequisites
+- **Deno** - JavaScript/TypeScript runtime ([install](https://deno.com/))
+- **Rust** - For Tauri backend ([install](https://www.rust-lang.org/tools/install))
+- **Xcode Command Line Tools** (macOS only)
+  ```bash
+  xcode-select --install
+  ```
+
+### Running the App
+
+```bash
+# Clone and navigate to the project
+cd pulse-desktop
+
+# Run in development mode
+deno task tauri dev
+```
+
+This will:
+1. Start the Vite dev server (React frontend)
+2. Compile and run the Rust/Tauri backend
+3. Open the desktop application window
+
+### Other Commands
+
+```bash
+# Build for production
+deno task tauri build
+
+# Run frontend only (UI development)
+deno task dev
+
+# Run tests
+deno task test
+```
+
+## Using Pulse Desktop
+
+1. **Launch the app** - Run `deno task tauri dev`
+2. **Create/select a project** - Choose a project name for organizing your recordings
+3. **Record** - Press and hold `Cmd+Shift+R` (macOS) or `Ctrl+Shift+R` (Windows)
+4. **Release to save** - Your recording is automatically saved
+5. **Manage clips** - View your timeline, drag to reorder clips, edit labels, or delete
+
+### Timeline Features
+- **Drag-drop reordering** - Click and hold any clip, drag to new position (blue pulsing line shows where it will drop)
+- **Keyboard navigation** - Use arrow keys to navigate, Cmd+Arrow to reorder
+- **Edit labels** - Click on any clip filename to rename
+- **Undo/Redo** - Cmd+Z / Cmd+Shift+Z for timeline changes
+
 ## Development
 
 ### Recommended IDE Setup
