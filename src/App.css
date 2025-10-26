@@ -27,7 +27,14 @@ body, html {
   overflow: hidden;
 }
 
-.container {
+.app-layout {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.main-content {
+  flex: 1;
   margin: 0;
   padding: 1rem;
   min-height: 100vh;
