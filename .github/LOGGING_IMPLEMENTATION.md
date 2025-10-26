@@ -16,15 +16,23 @@ env_logger = "0.11"
 
 Custom logger initialization with:
 - **Delta time tracking**: Shows milliseconds elapsed between log messages
+- **Smart date formatting**: Full date shown only on first log and when date changes
 - **Timestamp formatting**: ISO 8601 format with milliseconds
 - **Log levels**: Debug, Info, Warn, Error
-- **Format**: `YYYY-MM-DDTHH:MM:SS.mmm [+XXX ms] [LEVEL] - message`
+- **Format**: 
+  - First log or date change: `YYYY-MM-DD HH:MM:SS.mmm [+XXX ms] [LEVEL] - message`
+  - Subsequent logs: `HH:MM:SS.mmm [+XXX ms] [LEVEL] - message`
 
 Example output:
 ```
-2025-10-26T14:23:45.123 [+0 ms] [INFO] - Starting app
-2025-10-26T14:23:45.243 [+120 ms] [WARN] - Slow response detected
-2025-10-26T14:23:45.323 [+80 ms] [ERROR] - Network error
+2025-10-26 14:23:45.123 [+0 ms] [INFO] - Starting app
+14:23:45.243 [+120 ms] [WARN] - Slow response detected
+14:23:45.323 [+80 ms] [ERROR] - Network error
+14:25:10.456 [+85133 ms] [INFO] - Recording started
+...
+(next day)
+2025-10-27 09:15:30.789 [+0 ms] [INFO] - App resumed
+09:15:30.890 [+101 ms] [INFO] - Ready
 ```
 
 ### 3. Updated All Source Files
@@ -103,15 +111,28 @@ Key logging points:
 
 ## Performance Monitoring
 
-The delta time logging automatically tracks performance:
+The delta time logging automatically tracks performance with smart date formatting:
 
 ```rust
-info!("⚡ Pre-initializing capturer");  // [+0 ms]
-// ... 2-3 seconds of initialization ...
-info!("✅ Capturer pre-initialized");   // [+2834 ms]
+// First log of the session shows full date
+info!("⚡ Pre-initializing capturer");  
+// Output: 2025-10-26 14:23:45.123 [+0 ms] [INFO] - ⚡ Pre-initializing capturer
 
-info!("🎬 Starting recording");         // [+0 ms]
-info!("✅ Recording started");          // [+43 ms] ✓ Fast!
+// ... 2-3 seconds of initialization ...
+info!("✅ Capturer pre-initialized");   
+// Output: 14:23:47.957 [+2834 ms] [INFO] - ✅ Capturer pre-initialized
+
+info!("🎬 Starting recording");         
+// Output: 14:23:50.001 [+2044 ms] [INFO] - 🎬 Starting recording
+
+info!("✅ Recording started");          
+// Output: 14:23:50.044 [+43 ms] [INFO] - ✅ Recording started ✓ Fast!
+```
+
+If the date changes between logs, the full date is shown again:
+```
+14:59:59.999 [+1234 ms] [INFO] - Last log of the day
+2025-10-27 00:00:00.123 [+124 ms] [INFO] - First log of new day
 ```
 
 If startup exceeds 100ms:

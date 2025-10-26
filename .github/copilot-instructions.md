@@ -202,6 +202,38 @@ stateDiagram-v2
 - [ ] **Error handling**: Clear messages for permission/capture failures
 - [ ] **Platform testing**: Verify on both macOS and Windows
 
+
+### 🦀 Tauri Commands Organization Guidelines
+
+When suggesting or generating Rust code for the Tauri backend (`src-tauri/`):
+
+- Do **not** add all `#[tauri::command]` functions into a single `commands.rs` file.
+- Instead, organize commands by domain or feature area inside `src-tauri/src/commands/`.
+
+- Each file should contain only commands relevant to that domain (e.g. `user.rs` for authentication, profile, and session management).
+- `commands/mod.rs` should:
+- Declare each submodule.
+- Re-export public commands (e.g. `pub use user::*;`).
+- In `main.rs`, always register commands using:
+```rust
+use crate::commands::*;
+tauri::Builder::default()
+    .invoke_handler(tauri::generate_handler![
+        get_user_profile,
+        update_user_profile,
+        ...
+    ])
+    .run(tauri::generate_context!())
+    .expect("error while running tauri app");
+```
+
+* Prefer **thin command wrappers** that call into internal service or helper modules rather than embedding logic inside commands.
+* Keep imports local to each submodule — don’t bring unrelated crates or helpers into the main `commands.rs`.
+
+**Goal:** Maintain a clean modular Tauri backend where `commands.rs` only aggregates commands and domain-specific code lives in its own module.
+
+
+
 ## Quick Reference
 
 ### Code Quality Checklist
