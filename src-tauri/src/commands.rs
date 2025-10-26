@@ -1,10 +1,18 @@
 use tauri::{State, AppHandle, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
-use tauri::utils::config::Color;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use crate::state::AppState;
 use crate::events;
+
+#[derive(serde::Serialize)]
+pub struct RecordingInfo {
+    pub filename: String,
+    pub path: String,
+    pub size: u64,
+    pub created: u64,
+    pub thumbnail_path: Option<String>,
+}
 
 #[cfg(target_os = "macos")]
 use crate::capture::macos::ScreenCapturer;
@@ -127,9 +135,23 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                                         *count += 1;
                                     }
                                     
-                                    // Emit clip saved event
+                                    // Generate thumbnail automatically
+                                    let video_path = path.to_string_lossy().to_string();
+                                    let thumbnail_result = generate_thumbnail_internal(&video_path);
+                                    match thumbnail_result {
+                                        Ok(thumbnail_path) => {
+                                            println!("🖼️ Auto-generated thumbnail: {}", thumbnail_path);
+                                            // Small delay to ensure file is fully written
+                                            std::thread::sleep(std::time::Duration::from_millis(100));
+                                        }
+                                        Err(e) => {
+                                            println!("⚠️ Failed to auto-generate thumbnail: {}", e);
+                                        }
+                                    }
+                                    
+                                    // Emit clip saved event AFTER thumbnail generation
                                     let _ = events::emit_clip_saved(&app_clone, events::ClipSavedEvent {
-                                        path: path.to_string_lossy().to_string(),
+                                        path: video_path,
                                         duration_ms: 1000, // TODO: Calculate actual duration
                                     });
                                 }
@@ -378,5 +400,421 @@ pub async fn close_region_selector(app: AppHandle) -> Result<(), String> {
         println!("⚠️ Region selector window not found");
     }
     
+    Ok(())
+}
+
+/// List all recordings in the output folder
+#[tauri::command]
+pub fn list_recordings(state: State<AppState>) -> Result<Vec<RecordingInfo>, String> {
+    let folder = state.output_folder.lock().unwrap().clone();
+    
+    println!("🔍 Scanning folder: {:?}", folder);
+    
+    if !folder.exists() {
+        println!("❌ Output folder does not exist: {:?}", folder);
+        return Ok(vec![]);
+    }
+    
+    let mut recordings = Vec::new();
+    
+    if let Ok(entries) = std::fs::read_dir(&folder) {
+        for entry in entries.flatten() {
+            if let Some(file_name) = entry.file_name().to_str() {
+                println!("🔍 Found file: {}", file_name);
+                if file_name.ends_with(".mp4") {
+                    // Check if the filename (without extension) is purely numeric
+                    let name_without_ext = file_name.trim_end_matches(".mp4");
+                    if name_without_ext.chars().all(|c| c.is_ascii_digit()) {
+                        println!("✅ Valid recording file: {}", file_name);
+                    if let Ok(metadata) = entry.metadata() {
+                        let path = entry.path().to_string_lossy().to_string();
+                        
+                        // Try new naming pattern first (1_thumb.jpg)
+                        let thumbnail_path = entry.path().with_extension("").to_string_lossy().to_string() + "_thumb.jpg";
+                        let thumbnail_exists = std::path::Path::new(&thumbnail_path).exists();
+                        println!("🔍 Checking thumbnail: {} (exists: {})", thumbnail_path, thumbnail_exists);
+                        
+                        // If new pattern doesn't exist, try old pattern (recording-1_thumb.jpg)
+                        let final_thumbnail_path = if thumbnail_exists {
+                            println!("✅ Using new thumbnail: {}", thumbnail_path);
+                            Some(thumbnail_path)
+                        } else {
+                            let old_thumbnail_path = entry.path().parent()
+                                .unwrap_or(&entry.path())
+                                .join(format!("recording-{}_thumb.jpg", name_without_ext));
+                            println!("🔍 Checking old thumbnail: {} (exists: {})", old_thumbnail_path.display(), old_thumbnail_path.exists());
+                            if old_thumbnail_path.exists() {
+                                println!("✅ Using old thumbnail: {}", old_thumbnail_path.display());
+                                Some(old_thumbnail_path.to_string_lossy().to_string())
+                            } else {
+                                println!("❌ No thumbnail found for {}", file_name);
+                                None
+                            }
+                        };
+                        
+                        recordings.push(RecordingInfo {
+                            filename: file_name.to_string(),
+                            path,
+                            size: metadata.len(),
+                            created: metadata.created()
+                                .unwrap_or_else(|_| std::time::SystemTime::UNIX_EPOCH)
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs(),
+                            thumbnail_path: final_thumbnail_path,
+                        });
+                    }
+                    } else {
+                        println!("❌ Invalid file (not numeric): {}", file_name);
+                    }
+                } else {
+                    println!("❌ Not an MP4 file: {}", file_name);
+                }
+            }
+        }
+    }
+    
+    // Sort by creation time (oldest first)
+    recordings.sort_by(|a, b| a.created.cmp(&b.created));
+    
+    // Update clip count
+    {
+        let mut count = state.clip_count.lock().unwrap();
+        *count = recordings.len() as u32;
+    }
+    
+    println!("📊 Found {} recordings", recordings.len());
+    Ok(recordings)
+}
+
+/// Delete a recording file
+#[tauri::command]
+pub fn delete_recording(filename: String, state: State<AppState>) -> Result<(), String> {
+    let folder = state.output_folder.lock().unwrap().clone();
+    let file_path = folder.join(&filename);
+    
+    // Validate the path is within the output folder
+    if !file_path.starts_with(&folder) {
+        return Err("Invalid file path".to_string());
+    }
+    
+    if file_path.exists() {
+        std::fs::remove_file(&file_path)
+            .map_err(|e| format!("Failed to delete file: {}", e))?;
+        
+        // Also delete thumbnail if it exists
+        let thumbnail_path = file_path.with_extension("").to_string_lossy().to_string() + "_thumb.jpg";
+        if std::path::Path::new(&thumbnail_path).exists() {
+            let _ = std::fs::remove_file(&thumbnail_path);
+        }
+        
+        // Renumber remaining recordings
+        renumber_recordings(&folder)?;
+        
+        // Update clip count
+        {
+            let mut count = state.clip_count.lock().unwrap();
+            *count = count.saturating_sub(1);
+        }
+        
+        println!("🗑️ Deleted recording: {}", filename);
+    }
+    
+    Ok(())
+}
+
+/// Renumber recordings sequentially after deletion
+fn renumber_recordings(folder: &std::path::Path) -> Result<(), String> {
+    let mut recordings = Vec::new();
+    
+    if let Ok(entries) = std::fs::read_dir(folder) {
+        for entry in entries.flatten() {
+            if let Some(file_name) = entry.file_name().to_str() {
+                if file_name.ends_with(".mp4") {
+                    // Check if the filename (without extension) is purely numeric
+                    let name_without_ext = file_name.trim_end_matches(".mp4");
+                    if name_without_ext.chars().all(|c| c.is_ascii_digit()) {
+                        if let Ok(metadata) = entry.metadata() {
+                            recordings.push((entry.path(), metadata.created().unwrap_or_else(|_| std::time::SystemTime::UNIX_EPOCH)));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Sort by creation time (oldest first)
+    recordings.sort_by(|a, b| a.1.cmp(&b.1));
+    
+    // Rename files sequentially
+    for (i, (old_path, _)) in recordings.iter().enumerate() {
+        let new_name = format!("{}.mp4", i + 1);
+        let new_path = folder.join(&new_name);
+        
+        if old_path != &new_path {
+            std::fs::rename(old_path, &new_path)
+                .map_err(|e| format!("Failed to rename file: {}", e))?;
+            
+            // Also rename thumbnail if it exists
+            let old_thumb = old_path.with_extension("").to_string_lossy().to_string() + "_thumb.jpg";
+            let new_thumb = new_path.with_extension("").to_string_lossy().to_string() + "_thumb.jpg";
+            if std::path::Path::new(&old_thumb).exists() {
+                let _ = std::fs::rename(&old_thumb, &new_thumb);
+            }
+        }
+    }
+    
+    Ok(())
+}
+
+/// Generate thumbnail for a recording using FFmpeg command
+#[tauri::command]
+pub fn generate_thumbnail(video_path: String) -> Result<String, String> {
+    generate_thumbnail_internal(&video_path)
+}
+
+/// Internal thumbnail generation function (used automatically after recording)
+fn generate_thumbnail_internal(video_path: &str) -> Result<String, String> {
+    let video_file = std::path::PathBuf::from(&video_path);
+
+    if !video_file.exists() {
+        return Err("Video file does not exist".to_string());
+    }
+
+    // Create thumbnail filename
+    let thumbnail_name = video_file.file_stem()
+        .and_then(|s| s.to_str())
+        .map(|s| format!("{}_thumb.jpg", s))
+        .ok_or("Invalid video filename")?;
+
+    let thumbnail_path = video_file.parent()
+        .ok_or("Invalid video path")?
+        .join(&thumbnail_name);
+
+    // First, get the video duration to calculate center frame
+    let duration_output = std::process::Command::new("ffprobe")
+        .args(&[
+            "-v", "quiet",
+            "-show_entries", "format=duration",
+            "-of", "csv=p=0",
+            &video_path
+        ])
+        .output();
+
+    let center_time = match duration_output {
+        Ok(result) => {
+            if result.status.success() {
+                let duration_str = String::from_utf8_lossy(&result.stdout);
+                let duration_str = duration_str.trim();
+                if let Ok(duration) = duration_str.parse::<f64>() {
+                    let center = duration / 2.0;
+                    println!("📹 Video duration: {:.2}s, using center at {:.2}s", duration, center);
+                    center.to_string()
+                } else {
+                    "0.1".to_string() // Fallback to 0.1s if duration parsing fails
+                }
+            } else {
+                "0.1".to_string() // Fallback to 0.1s if ffprobe fails
+            }
+        }
+        Err(_) => "0.1".to_string() // Fallback to 0.1s if ffprobe not available
+    };
+
+    // Use center frame for thumbnail
+    let output = std::process::Command::new("ffmpeg")
+        .args(&[
+            "-i", &video_path,
+            "-ss", &center_time,  // Seek to center of video
+            "-vframes", "1",  // Extract exactly 1 frame
+            "-vf", "scale=320:240",  // Simple scale to thumbnail size
+            "-f", "image2",  // Output format
+            "-y",  // Overwrite if exists
+            &thumbnail_path.to_string_lossy()
+        ])
+        .output();
+
+    match output {
+        Ok(result) => {
+            if result.status.success() {
+                println!("🖼️ Generated thumbnail: {}", thumbnail_path.display());
+                Ok(thumbnail_path.to_string_lossy().to_string())
+            } else {
+                let error = String::from_utf8_lossy(&result.stderr);
+                println!("⚠️ FFmpeg failed: {}", error);
+                
+                // Try with even simpler command as fallback (still using center)
+                let fallback_output = std::process::Command::new("ffmpeg")
+                    .args(&[
+                        "-i", &video_path,
+                        "-ss", &center_time,  // Still use center frame
+                        "-vframes", "1",  // Just 1 frame
+                        "-s", "320x240",  // Simple size specification
+                        "-y",  // Overwrite
+                        &thumbnail_path.to_string_lossy()
+                    ])
+                    .output();
+                
+                match fallback_output {
+                    Ok(fallback_result) => {
+                        if fallback_result.status.success() {
+                            println!("🖼️ Generated thumbnail (fallback): {}", thumbnail_path.display());
+                            Ok(thumbnail_path.to_string_lossy().to_string())
+                        } else {
+                            let fallback_error = String::from_utf8_lossy(&fallback_result.stderr);
+                            Err(format!("FFmpeg failed with both methods. Error: {}", fallback_error))
+                        }
+                    }
+                    Err(e) => {
+                        Err(format!("Failed to run FFmpeg: {}. Make sure FFmpeg is installed and in PATH.", e))
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            Err(format!("Failed to run FFmpeg: {}. Make sure FFmpeg is installed and in PATH.", e))
+        }
+    }
+}
+
+/// Read thumbnail file and return as base64
+#[tauri::command]
+pub fn read_thumbnail_file(file_path: String) -> Result<String, String> {
+    use std::fs;
+    use base64::{Engine as _, engine::general_purpose};
+    
+    let file_data = fs::read(&file_path)
+        .map_err(|e| format!("Failed to read file {}: {}", file_path, e))?;
+    
+    let base64_data = general_purpose::STANDARD.encode(&file_data);
+    Ok(base64_data)
+}
+
+/// Play a recording file using the system default player
+#[tauri::command]
+pub fn play_recording(file_path: String) -> Result<(), String> {
+    use std::process::Command;
+    
+    #[cfg(target_os = "macos")]
+    {
+        let result = Command::new("open")
+            .arg(&file_path)
+            .spawn();
+        
+        match result {
+            Ok(_) => {
+                println!("🎬 Playing recording: {}", file_path);
+                Ok(())
+            }
+            Err(e) => Err(format!("Failed to play recording: {}", e))
+        }
+    }
+    
+    #[cfg(target_os = "windows")]
+    {
+        let result = Command::new("cmd")
+            .args(&["/C", "start", "", &file_path])
+            .spawn();
+        
+        match result {
+            Ok(_) => {
+                println!("🎬 Playing recording: {}", file_path);
+                Ok(())
+            }
+            Err(e) => Err(format!("Failed to play recording: {}", e))
+        }
+    }
+    
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let result = Command::new("xdg-open")
+            .arg(&file_path)
+            .spawn();
+        
+        match result {
+            Ok(_) => {
+                println!("🎬 Playing recording: {}", file_path);
+                Ok(())
+            }
+            Err(e) => Err(format!("Failed to play recording: {}", e))
+        }
+    }
+}
+
+/// Reorder recordings based on new order
+#[tauri::command]
+pub fn reorder_recordings(new_order: Vec<String>, state: State<AppState>) -> Result<(), String> {
+    let folder = state.output_folder.lock().unwrap().clone();
+    
+    if !folder.exists() {
+        return Err("Output folder does not exist".to_string());
+    }
+    
+    // Get all current recordings with their metadata
+    let mut recordings = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&folder) {
+        for entry in entries.flatten() {
+            if let Some(file_name) = entry.file_name().to_str() {
+                if file_name.ends_with(".mp4") {
+                    // Check if the filename (without extension) is purely numeric
+                    let name_without_ext = file_name.trim_end_matches(".mp4");
+                    if name_without_ext.chars().all(|c| c.is_ascii_digit()) {
+                        if let Ok(metadata) = entry.metadata() {
+                            recordings.push((entry.path(), metadata.created().unwrap_or_else(|_| std::time::SystemTime::UNIX_EPOCH)));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Sort by creation time to get the original order
+    recordings.sort_by(|a, b| a.1.cmp(&b.1));
+    
+    // Validate that new_order contains all recordings
+    if new_order.len() != recordings.len() {
+        return Err("Invalid reorder: number of items doesn't match".to_string());
+    }
+    
+    // Create temporary names to avoid conflicts during renaming
+    let temp_prefix = "temp_recording_";
+    let mut temp_files = Vec::new();
+    
+    // First, rename all files to temporary names
+    for (i, (old_path, _)) in recordings.iter().enumerate() {
+        let temp_name = format!("{}{}.mp4", temp_prefix, i);
+        let temp_path = folder.join(&temp_name);
+        
+        std::fs::rename(old_path, &temp_path)
+            .map_err(|e| format!("Failed to rename to temp: {}", e))?;
+        
+        // Also rename thumbnail if it exists
+        let old_thumb = old_path.with_extension("").to_string_lossy().to_string() + "_thumb.jpg";
+        let temp_thumb = temp_path.with_extension("").to_string_lossy().to_string() + "_thumb.jpg";
+        if std::path::Path::new(&old_thumb).exists() {
+            let _ = std::fs::rename(&old_thumb, &temp_thumb);
+        }
+        
+        temp_files.push((temp_path, temp_thumb));
+    }
+    
+    // Now rename from temp names to final names based on new order
+    for (i, _filename) in new_order.iter().enumerate() {
+        let final_name = format!("{}.mp4", i + 1);
+        let final_path = folder.join(&final_name);
+        let final_thumb = folder.join(&format!("{}_thumb.jpg", i + 1));
+        
+        // Find the temp file that corresponds to this filename
+        if let Some((temp_path, temp_thumb)) = temp_files.get(i) {
+            std::fs::rename(temp_path, &final_path)
+                .map_err(|e| format!("Failed to rename to final: {}", e))?;
+            
+            // Rename thumbnail if it exists
+            if std::path::Path::new(temp_thumb).exists() {
+                let _ = std::fs::rename(temp_thumb, &final_thumb);
+            }
+        }
+    }
+    
+    println!("🔄 Reordered {} recordings", recordings.len());
     Ok(())
 }
