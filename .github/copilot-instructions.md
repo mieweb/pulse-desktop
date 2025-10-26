@@ -232,6 +232,57 @@ tauri::Builder::default()
 
 **Goal:** Maintain a clean modular Tauri backend where `commands.rs` only aggregates commands and domain-specific code lives in its own module.
 
+### 📝 Logging Guidelines
+
+**Critical Rule:** NEVER use `println!` or `eprintln!` in library or production code. Always use the `log` crate.
+
+#### Rust Logging
+
+**Always use the `log` crate** for all Rust code (library crates and application code):
+
+**Log Levels:**
+- `error!()` - Critical errors that prevent functionality
+- `warn!()` - Warnings about potential issues
+- `info!()` - Important informational messages (pre-init, major state changes)
+- `debug!()` - Detailed debugging information (file paths, configuration details)
+- `trace!()` - Very verbose tracing (rarely used)
+
+**Guidelines:**
+- Include context in messages (file paths, durations, counts)
+- Log both start and completion of long operations
+- Always log errors with context before propagating
+
+#### Objective-C Logging (.m files)
+
+**Use the Rust logging bridge** instead of `NSLog` to maintain consistent formatting and delta timestamps:
+
+**Available Macros:**
+- `LOG_INFO(fmt, ...)` - Important informational messages
+- `LOG_DEBUG(fmt, ...)` - Detailed debugging information
+- `LOG_WARN(fmt, ...)` - Warning messages
+- `LOG_ERROR(fmt, ...)` - Error messages
+
+**Bridge Implementation:**
+The Objective-C macros convert NSString to C strings and call Rust functions:
+```objective-c
+#define LOG_INFO(fmt, ...) do { \
+    NSString *msg = [NSString stringWithFormat:fmt, ##__VA_ARGS__]; \
+    rust_log_info([msg UTF8String]); \
+} while(0)
+```
+
+**DO NOT:**
+- ❌ Never use `NSLog` in new code (use `LOG_*` macros instead)
+- ❌ Never use `println!` or `eprintln!` in library/production code
+- ❌ Never log sensitive information (paths are OK, but not user data)
+- ❌ Don't over-log in hot paths (frame processing, tight loops)
+
+**DO:**
+- ✅ Always add `use log::{info, debug, warn, error};` to Rust files
+- ✅ Use appropriate log levels for the message importance
+- ✅ Include context in error messages before propagating
+- ✅ Log major state transitions (init, start, stop, error)
+- ✅ Use emojis consistently for visual scanning
 
 
 ## Quick Reference
