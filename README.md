@@ -38,3 +38,10 @@ Push-to-hold screen capture with the simplicity of a walkie-talkie. Press `Cmd+S
 ### Recommended IDE Setup
 
 - [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+
+## Running for developers
+
+```
+npm install
+npm run tauri dev
+```
