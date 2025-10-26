@@ -41,3 +41,7 @@ notify = "6.1"
 # Checksums for file integrity and rename detection
 sha2 = "0.10"
 
+# Logging
+log = "0.4"
+env_logger = "0.11"
+

@@ -10,6 +10,7 @@ use std::fs;
 use std::collections::HashMap;
 use sha2::{Sha256, Digest};
 use std::io::Read;
+use log::{debug, info, warn, error};
 
 #[cfg(target_os = "macos")]
 use crate::capture::macos::ScreenCapturer;
@@ -36,13 +37,14 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
     let _app_handle = app.clone();
     
     app.global_shortcut().on_shortcut(shortcut, move |app, _shortcut, event| {
-        println!("Hotkey event: state={:?}", event.state);
+        debug!("Hotkey event: state={:?}", event.state);
         
         match event.state {
             ShortcutState::Pressed => {
                 // Key pressed - start recording
                 if !IS_RECORDING.swap(true, Ordering::SeqCst) {
-                    println!("🎬 Starting recording...");
+                    let press_time = std::time::Instant::now();
+                    info!("🎬 Starting recording at {:?}...", press_time);
                     
                     // Check if we have a current project before starting
                     let state = app.state::<AppState>();
@@ -53,79 +55,185 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                     
                     // If no project is selected, emit event and stop recording
                     if current_project.is_none() {
-                        println!("⚠️  No project selected - requesting project name");
+                        warn!("⚠️  No project selected - requesting project name");
                         let _ = events::emit_project_required(app);
                         IS_RECORDING.store(false, Ordering::SeqCst);
                         return;
                     }
                     
+                    // Pause filesystem watcher during recording
+                    {
+                        let control = state.watcher_control.lock().unwrap();
+                        if let Some(watcher) = control.as_ref() {
+                            watcher.pause();
+                        }
+                    }
+                    
                     let _ = events::emit_status(app, "recording");
                     
-                    // Start actual screen capture in background thread
-                    let app_clone = app.clone();
-                    std::thread::spawn(move || {
-                        let state = app_clone.state::<AppState>();
-                        
-                        // Get output folder and current project
-                        let (base_output_folder, current_project) = {
-                            let folder = state.output_folder.lock().unwrap();
-                            let project = state.current_project.lock().unwrap();
-                            (folder.clone(), project.clone())
-                        };
-                        
-                        // At this point we know current_project is Some(), so unwrap is safe
-                        let project_name = current_project.unwrap();
-                        let output_folder = base_output_folder.join(&project_name);
-                        
-                        // Create output folder if it doesn't exist
-                        if let Err(e) = std::fs::create_dir_all(&output_folder) {
-                            eprintln!("Failed to create output folder: {}", e);
-                            let _ = events::emit_error(&app_clone, "FOLDER_ERROR", &format!("Failed to create output folder: {}", e));
-                            IS_RECORDING.store(false, Ordering::SeqCst);
-                            let _ = events::emit_status(&app_clone, "idle");
-                            return;
-                        }
-                        
-                        // Get mic_enabled from state
-                        let mic_enabled = {
-                            let mic = state.mic_enabled.lock().unwrap();
-                            *mic
-                        };
-                        
-                        // Get capture region from state
-                        let capture_region = {
-                            let region = state.capture_region.lock().unwrap();
-                            *region
-                        };
-                        
-                        // Create capturer
-                        let mut capturer = ScreenCapturer::new(output_folder, mic_enabled);
-                        
-                        // Start recording (blocking call)
-                        let runtime = tokio::runtime::Runtime::new().unwrap();
-                        match runtime.block_on(capturer.start_recording(capture_region)) {
-                            Ok(_) => {
-                                println!("✅ Screen capture started");
-                                // Store capturer in state
+                    // Check if we already have a pre-initialized capturer
+                    let mut capturer_ready = {
+                        let cap = state.capturer.lock().unwrap();
+                        cap.is_some()
+                    };
+                    
+                    if capturer_ready {
+                        // Fast path: capturer already initialized
+                        info!("⚡ Using pre-initialized capturer (fast path)");
+                        let app_clone = app.clone();
+                        std::thread::spawn(move || {
+                            let state = app_clone.state::<AppState>();
+                            
+                            // Get capture region from state
+                            let capture_region = {
+                                let region = state.capture_region.lock().unwrap();
+                                *region
+                            };
+                            
+                            // Take capturer from state
+                            let mut capturer_option = {
                                 let mut cap = state.capturer.lock().unwrap();
-                                *cap = Some(capturer);
-                            }
-                            Err(e) => {
-                                eprintln!("❌ Failed to start recording: {}", e);
-                                let _ = events::emit_error(&app_clone, "CAPTURE_ERROR", &e);
+                                cap.take()
+                            };
+                            
+                            if let Some(mut capturer) = capturer_option {
+                                let runtime = tokio::runtime::Runtime::new().unwrap();
+                                match runtime.block_on(capturer.start_recording(capture_region)) {
+                                    Ok(_) => {
+                                        let elapsed = press_time.elapsed();
+                                        info!("✅ Screen capture started in {:?}", elapsed);
+                                        
+                                        if elapsed.as_millis() > 100 {
+                                            error!("⚠️  SLOW START DETECTED: {:?} from key press to recording started", elapsed);
+                                            error!("💔 We sincerely apologize - you may have lost the first {:?} of your recording.", elapsed);
+                                            error!("🔧 This should not happen with pre-initialization. Please report this issue.");
+                                        }
+                                        
+                                        // Store capturer back in state
+                                        let mut cap = state.capturer.lock().unwrap();
+                                        *cap = Some(capturer);
+                                    }
+                                    Err(e) => {
+                                        error!("❌ Failed to start recording: {}", e);
+                                        let _ = events::emit_error(&app_clone, "CAPTURE_ERROR", &e);
+                                        IS_RECORDING.store(false, Ordering::SeqCst);
+                                        let _ = events::emit_status(&app_clone, "idle");
+                                        
+                                        // Resume filesystem watcher on error
+                                        {
+                                            let control = state.watcher_control.lock().unwrap();
+                                            if let Some(watcher) = control.as_ref() {
+                                                watcher.resume();
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                error!("❌ Capturer was expected but not found!");
+                                let _ = events::emit_error(&app_clone, "CAPTURE_ERROR", "Capturer initialization failed");
                                 IS_RECORDING.store(false, Ordering::SeqCst);
                                 let _ = events::emit_status(&app_clone, "idle");
+                                
+                                // Resume filesystem watcher
+                                {
+                                    let control = state.watcher_control.lock().unwrap();
+                                    if let Some(watcher) = control.as_ref() {
+                                        watcher.resume();
+                                    }
+                                }
                             }
-                        }
-                    });
+                        });
+                    } else {
+                        // Slow path: need to create capturer (this should rarely happen)
+                        warn!("🐌 SLOW PATH: Creating capturer on demand (this should not happen!)");
+                        error!("⚠️  CAPTURER NOT PRE-INITIALIZED!");
+                        error!("💔 We sincerely apologize - you will likely lose the first few seconds of your recording.");
+                        error!("🔧 Please ensure a project is selected before recording to enable fast startup.");
+                        
+                        let app_clone = app.clone();
+                        std::thread::spawn(move || {
+                            let state = app_clone.state::<AppState>();
+                            
+                            // Get output folder and current project
+                            let (base_output_folder, current_project) = {
+                                let folder = state.output_folder.lock().unwrap();
+                                let project = state.current_project.lock().unwrap();
+                                (folder.clone(), project.clone())
+                            };
+                            
+                            // At this point we know current_project is Some(), so unwrap is safe
+                            let project_name = current_project.unwrap();
+                            let output_folder = base_output_folder.join(&project_name);
+                            
+                            // Create output folder if it doesn't exist
+                            if let Err(e) = std::fs::create_dir_all(&output_folder) {
+                                error!("Failed to create output folder: {}", e);
+                                let _ = events::emit_error(&app_clone, "FOLDER_ERROR", &format!("Failed to create output folder: {}", e));
+                                IS_RECORDING.store(false, Ordering::SeqCst);
+                                let _ = events::emit_status(&app_clone, "idle");
+                                
+                                // Resume filesystem watcher on error
+                                {
+                                    let control = state.watcher_control.lock().unwrap();
+                                    if let Some(watcher) = control.as_ref() {
+                                        watcher.resume();
+                                    }
+                                }
+                                return;
+                            }
+                            
+                            // Get mic_enabled from state
+                            let mic_enabled = {
+                                let mic = state.mic_enabled.lock().unwrap();
+                                *mic
+                            };
+                            
+                            // Get capture region from state
+                            let capture_region = {
+                                let region = state.capture_region.lock().unwrap();
+                                *region
+                            };
+                            
+                            // Create capturer
+                            let mut capturer = ScreenCapturer::new(output_folder, mic_enabled);
+                            
+                            // Start recording (blocking call)
+                            let runtime = tokio::runtime::Runtime::new().unwrap();
+                            match runtime.block_on(capturer.start_recording(capture_region)) {
+                                Ok(_) => {
+                                    let elapsed = press_time.elapsed();
+                                    info!("✅ Screen capture started in {:?}", elapsed);
+                                    error!("⏱️  Slow initialization took {:?} - user lost beginning of recording", elapsed);
+                                    
+                                    // Store capturer in state
+                                    let mut cap = state.capturer.lock().unwrap();
+                                    *cap = Some(capturer);
+                                }
+                                Err(e) => {
+                                    error!("❌ Failed to start recording: {}", e);
+                                    let _ = events::emit_error(&app_clone, "CAPTURE_ERROR", &e);
+                                    IS_RECORDING.store(false, Ordering::SeqCst);
+                                    let _ = events::emit_status(&app_clone, "idle");
+                                    
+                                    // Resume filesystem watcher on error
+                                    {
+                                        let control = state.watcher_control.lock().unwrap();
+                                        if let Some(watcher) = control.as_ref() {
+                                            watcher.resume();
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                    }
                 } else {
-                    println!("⚠️  Already recording, ignoring press");
+                    warn!("⚠️  Already recording, ignoring press");
                 }
             }
             ShortcutState::Released => {
                 // Key released - stop recording
                 if IS_RECORDING.swap(false, Ordering::SeqCst) {
-                    println!("⏹️  Stopping recording...");
+                    info!("⏹️  Stopping recording...");
                     
                     // Immediately transition to idle to allow rapid re-recording
                     let _ = events::emit_status(app, "idle");
@@ -145,7 +253,7 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                             let runtime = tokio::runtime::Runtime::new().unwrap();
                             match runtime.block_on(capturer.stop_recording()) {
                                 Ok(path) => {
-                                    println!("✅ Recording saved to: {:?}", path);
+                                    info!("✅ Recording saved to: {:?}", path);
                                     
                                     // Increment clip count
                                     {
@@ -182,7 +290,7 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                                                 height,
                                                 app_handle_clone.state::<AppState>()
                                             ).await {
-                                                eprintln!("Failed to add timeline entry: {}", e);
+                                                error!("Failed to add timeline entry: {}", e);
                                             }
                                         });
                                     }
@@ -192,24 +300,73 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                                         path: path.to_string_lossy().to_string(),
                                         duration_ms: 1000, // TODO: Calculate actual duration
                                     });
+                                    
+                                    // Re-initialize capturer for next recording (in background)
+                                    {
+                                        let current_project = state.current_project.lock().unwrap().clone();
+                                        if let Some(_project_name) = current_project {
+                                            info!("🔄 Re-initializing capturer for next recording...");
+                                            
+                                            let output_folder = state.output_folder.lock().unwrap().clone();
+                                            let mic_enabled = state.mic_enabled.lock().unwrap().clone();
+                                            let capture_region = state.capture_region.lock().unwrap().clone();
+                                            let project_folder = output_folder.join(_project_name);
+                                            
+                                            // Create new capturer
+                                            let mut new_capturer = ScreenCapturer::new(project_folder, mic_enabled);
+                                            
+                                            // Pre-initialize in background
+                                            let app_for_spawn = app_clone.clone();
+                                            tokio::spawn(async move {
+                                                match new_capturer.pre_initialize(capture_region).await {
+                                                    Ok(_) => {
+                                                        info!("✅ Capturer re-initialized for next recording");
+                                                        // Store back in state
+                                                        let state = app_for_spawn.state::<AppState>();
+                                                        let mut cap = state.capturer.lock().unwrap();
+                                                        *cap = Some(new_capturer);
+                                                    }
+                                                    Err(e) => {
+                                                        warn!("⚠️  Failed to re-initialize capturer: {}", e);
+                                                    }
+                                                }
+                                            });
+                                        }
+                                    }
+                                    
+                                    // Resume filesystem watcher AFTER clip is fully processed and event emitted
+                                    {
+                                        let control = state.watcher_control.lock().unwrap();
+                                        if let Some(watcher) = control.as_ref() {
+                                            watcher.resume();
+                                        }
+                                    }
                                 }
                                 Err(e) => {
-                                    eprintln!("❌ Failed to stop recording: {}", e);
+                                    error!("❌ Failed to stop recording: {}", e);
                                     let _ = events::emit_error(&app_clone, "SAVE_ERROR", &e);
+                                    
+                                    // Resume filesystem watcher even on error
+                                    {
+                                        let control = state.watcher_control.lock().unwrap();
+                                        if let Some(watcher) = control.as_ref() {
+                                            watcher.resume();
+                                        }
+                                    }
                                 }
                             }
                         } else {
-                            println!("⚠️  No active capturer to stop");
+                            warn!("⚠️  No active capturer to stop");
                         }
                     });
                 } else {
-                    println!("⚠️  Not recording, ignoring release");
+                    warn!("⚠️  Not recording, ignoring release");
                 }
             }
         }
     })?;
     
-    println!("✅ Global shortcut registered: {}", shortcut);
+    info!("✅ Global shortcut registered: {}", shortcut);
     Ok(())
 }
 
@@ -233,10 +390,65 @@ pub fn set_output_folder(path: String, state: State<AppState>) -> Result<(), Str
 
 /// Set microphone enabled state
 #[tauri::command]
-pub fn set_mic_enabled(enabled: bool, state: State<AppState>) -> Result<(), String> {
-    let mut mic = state.mic_enabled.lock()
-        .map_err(|e| format!("Failed to lock mic_enabled: {}", e))?;
-    *mic = enabled;
+pub async fn set_mic_enabled(enabled: bool, state: State<'_, AppState>) -> Result<(), String> {
+    {
+        let mut mic = state.mic_enabled.lock()
+            .map_err(|e| format!("Failed to lock mic_enabled: {}", e))?;
+        *mic = enabled;
+    }
+    
+    // Re-initialize capturer with new mic setting if we have a project selected
+    reinitialize_capturer_if_needed(state).await?;
+    
+    Ok(())
+}
+
+/// Helper function to re-initialize capturer when settings change
+async fn reinitialize_capturer_if_needed(state: State<'_, AppState>) -> Result<(), String> {
+    let current_project = {
+        let project = state.current_project.lock()
+            .map_err(|e| format!("Failed to lock current_project: {}", e))?;
+        project.clone()
+    };
+    
+    if let Some(project_name) = current_project {
+        info!("🔄 Re-initializing capturer due to settings change...");
+        
+        let output_folder = {
+            let folder = state.output_folder.lock()
+                .map_err(|e| format!("Failed to lock output_folder: {}", e))?;
+            folder.clone()
+        };
+        
+        let output_path = output_folder.join(&project_name);
+        
+        let mic_enabled = {
+            let mic = state.mic_enabled.lock()
+                .map_err(|e| format!("Failed to lock mic_enabled: {}", e))?;
+            *mic
+        };
+        
+        let capture_region = {
+            let region = state.capture_region.lock()
+                .map_err(|e| format!("Failed to lock capture_region: {}", e))?;
+            *region
+        };
+        
+        // Create and pre-initialize new capturer
+        let mut capturer = ScreenCapturer::new(output_path, mic_enabled);
+        capturer.pre_initialize(capture_region).await
+            .map_err(|e| format!("Failed to re-initialize recorder: {}", e))?;
+        
+        info!("✅ Capturer re-initialized");
+        
+        // Store in state
+        {
+            let mut cap = state.capturer.lock()
+                .map_err(|e| format!("Failed to lock capturer: {}", e))?;
+            *cap = Some(capturer);
+        }
+    }
+    
     Ok(())
 }
 
@@ -267,7 +479,7 @@ pub fn get_output_folder(state: State<AppState>) -> Result<String, String> {
 /// Initialize the global hotkey for recording
 #[tauri::command]
 pub async fn init_hotkey() -> Result<String, String> {
-    println!("Initializing global hotkey...");
+    debug!("Initializing global hotkey...");
     // TODO: This will be implemented when we add full hotkey support
     #[cfg(target_os = "macos")]
     {
@@ -286,7 +498,7 @@ pub async fn init_hotkey() -> Result<String, String> {
 /// Start recording manually (for testing without hotkey)
 #[tauri::command]
 pub async fn start_recording(_state: State<'_, AppState>) -> Result<(), String> {
-    println!("Manual start recording triggered");
+    debug!("Manual start recording triggered");
     // TODO: Implement actual recording start
     Ok(())
 }
@@ -294,7 +506,7 @@ pub async fn start_recording(_state: State<'_, AppState>) -> Result<(), String> 
 /// Stop recording manually (for testing without hotkey)
 #[tauri::command]
 pub async fn stop_recording(_state: State<'_, AppState>) -> Result<String, String> {
-    println!("Manual stop recording triggered");
+    debug!("Manual stop recording triggered");
     // TODO: Implement actual recording stop
     Ok("Recording stopped".to_string())
 }
@@ -368,18 +580,30 @@ pub async fn set_capture_region(
     width: u32,
     height: u32,
 ) -> Result<(), String> {
-    let mut region = state.capture_region.lock().unwrap();
-    *region = Some((x, y, width, height));
-    println!("📏 Capture region set: {}x{} at ({}, {})", width, height, x, y);
+    {
+        let mut region = state.capture_region.lock().unwrap();
+        *region = Some((x, y, width, height));
+        info!("📏 Capture region set: {}x{} at ({}, {})", width, height, x, y);
+    }
+    
+    // Re-initialize capturer with new region
+    reinitialize_capturer_if_needed(state).await?;
+    
     Ok(())
 }
 
 /// Clear capture region (return to full screen)
 #[tauri::command]
 pub async fn clear_capture_region(state: State<'_, AppState>) -> Result<(), String> {
-    let mut region = state.capture_region.lock().unwrap();
-    *region = None;
-    println!("🖥️ Capture region cleared - using full screen");
+    {
+        let mut region = state.capture_region.lock().unwrap();
+        *region = None;
+        info!("🖥️ Capture region cleared - using full screen");
+    }
+    
+    // Re-initialize capturer for full screen
+    reinitialize_capturer_if_needed(state).await?;
+    
     Ok(())
 }
 
@@ -401,7 +625,7 @@ pub async fn open_region_selector(
 ) -> Result<(), String> {
     use tauri::{WebviewUrl, WebviewWindowBuilder};
     
-    println!("📏 Opening region selector overlay");
+    debug!("📏 Opening region selector overlay");
     
     // Create full-screen overlay window using the main app with a special query parameter
     let url = format!("{}?mode=region-selector&aspectRatio={}&scaleToPreset={}", 
@@ -429,13 +653,13 @@ pub async fn open_region_selector(
 /// Close the region selector window
 #[tauri::command]
 pub async fn close_region_selector(app: AppHandle) -> Result<(), String> {
-    println!("🔒 Closing region selector window");
+    debug!("🔒 Closing region selector window");
     
     if let Some(window) = app.get_webview_window("region_selector") {
         window.close().map_err(|e| format!("Failed to close region selector window: {}", e))?;
-        println!("✅ Region selector window closed");
+        debug!("✅ Region selector window closed");
     } else {
-        println!("⚠️ Region selector window not found");
+        debug!("⚠️ Region selector window not found");
     }
     
     Ok(())
@@ -646,7 +870,39 @@ pub async fn set_current_project(project_name: String, state: State<'_, AppState
 
     {
         let mut current = state.current_project.lock().map_err(|e| format!("Failed to lock current project: {}", e))?;
-        *current = Some(project_name);
+        *current = Some(project_name.clone());
+    }
+    
+    // Pre-initialize capturer for instant recording startup
+    info!("⚡ Pre-initializing capturer for project: {}", project_name);
+    let output_path = output_folder.join(&project_name);
+    
+    let mic_enabled = {
+        let mic = state.mic_enabled.lock().map_err(|e| format!("Failed to lock mic_enabled: {}", e))?;
+        *mic
+    };
+    
+    let capture_region = {
+        let region = state.capture_region.lock().map_err(|e| format!("Failed to lock capture_region: {}", e))?;
+        *region
+    };
+    
+    // Create capturer
+    let mut capturer = ScreenCapturer::new(output_path, mic_enabled);
+    
+    // Pre-initialize (this takes 2-3 seconds)
+    capturer.pre_initialize(capture_region).await
+        .map_err(|e| {
+            warn!("⚠️  Failed to pre-initialize capturer: {}", e);
+            format!("Failed to pre-initialize recorder: {}", e)
+        })?;
+    
+    info!("✅ Capturer pre-initialized and ready for instant recording");
+    
+    // Store in state
+    {
+        let mut cap = state.capturer.lock().map_err(|e| format!("Failed to lock capturer: {}", e))?;
+        *cap = Some(capturer);
     }
 
     Ok(())
@@ -788,7 +1044,7 @@ pub async fn reconcile_project_timeline(project_name: String, state: State<'_, A
                         if let Ok(checksum) = calculate_file_checksum(&path) {
                             actual_files.insert(filename_str, checksum);
                         } else {
-                            println!("⚠️  Failed to calculate checksum for {}", filename_str);
+                            warn!("⚠️  Failed to calculate checksum for {}", filename_str);
                         }
                     }
                 }
@@ -803,7 +1059,7 @@ pub async fn reconcile_project_timeline(project_name: String, state: State<'_, A
     timeline.entries.retain(|entry| {
         let exists = actual_files.contains_key(&entry.filename);
         if !exists {
-            println!("🗑️  Removed deleted file from timeline: {}", entry.filename);
+            info!("🗑️  Removed deleted file from timeline: {}", entry.filename);
         }
         exists
     });
@@ -829,7 +1085,7 @@ pub async fn reconcile_project_timeline(project_name: String, state: State<'_, A
             // If the current filename doesn't exist but checksum matches another file
             if !actual_files.contains_key(&entry.filename) {
                 if let Some(new_filename) = actual_checksums.get(old_checksum) {
-                    println!("📝 Detected rename: {} -> {}", entry.filename, new_filename);
+                    info!("📝 Detected rename: {} -> {}", entry.filename, new_filename);
                     entry.filename = new_filename.clone();
                     entry.notes = Some(format!("File renamed during reconciliation"));
                     changes_count += 1;
@@ -893,7 +1149,7 @@ pub async fn reconcile_project_timeline(project_name: String, state: State<'_, A
                 checksum: Some(checksum.clone()),
             };
 
-            println!("➕ Added new file to timeline: {}", filename);
+            info!("➕ Added new file to timeline: {}", filename);
             timeline.entries.push(entry);
             changes_count += 1;
         }
@@ -914,7 +1170,7 @@ pub async fn reconcile_project_timeline(project_name: String, state: State<'_, A
     fs::write(&timeline_path, timeline_json)
         .map_err(|e| format!("Failed to write timeline.json: {}", e))?;
 
-    println!("✅ Reconciliation complete: {} changes detected", changes_count);
+    info!("✅ Reconciliation complete: {} changes detected", changes_count);
     Ok(changes_count)
 }
 

@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
+use crate::fs_watcher::WatcherControl;
 
 #[cfg(target_os = "macos")]
 use crate::capture::macos::ScreenCapturer;
@@ -16,6 +17,7 @@ pub struct AppState {
     pub capturer: Mutex<Option<ScreenCapturer>>,
     pub capture_region: Mutex<Option<(u32, u32, u32, u32)>>, // x, y, width, height
     pub current_project: Mutex<Option<String>>,
+    pub watcher_control: Mutex<Option<WatcherControl>>,
 }
 
 impl AppState {
@@ -42,6 +44,7 @@ impl AppState {
             capturer: Mutex::new(None),
             capture_region: Mutex::new(None), // Start with full screen (no region)
             current_project: Mutex::new(None),
+            watcher_control: Mutex::new(None),
         }
     }
 }

@@ -2,5 +2,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
+    pulse_desktop_lib::logging::init();
     pulse_desktop_lib::run()
 }

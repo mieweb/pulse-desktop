@@ -5,8 +5,11 @@ mod capture;
 mod hotkey;
 mod fs_watcher;
 
+pub mod logging;
+
 use state::AppState;
 use tauri::Manager;
+use log::{info, warn};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -44,14 +47,21 @@ pub fn run() {
             
             // Start filesystem watcher for output folder
             let app_handle = app.handle().clone();
+            let state = app.state::<AppState>();
             let output_folder = {
-                let state = app.state::<AppState>();
                 let folder = state.output_folder.lock().unwrap();
                 folder.clone()
             };
             
-            if let Err(e) = fs_watcher::watch_output_folder(app_handle, output_folder) {
-                eprintln!("⚠️  Failed to start filesystem watcher: {}", e);
+            match fs_watcher::watch_output_folder(app_handle, output_folder) {
+                Ok(watcher_control) => {
+                    info!("✅ Filesystem watcher started, storing control handle");
+                    let mut control = state.watcher_control.lock().unwrap();
+                    *control = Some(watcher_control);
+                }
+                Err(e) => {
+                    warn!("⚠️  Failed to start filesystem watcher: {}", e);
+                }
             }
             
             Ok(())

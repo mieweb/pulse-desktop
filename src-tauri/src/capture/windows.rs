@@ -1,6 +1,7 @@
 // Windows-specific capture implementation using Desktop Duplication API
 
 use std::path::PathBuf;
+use log::debug;
 
 pub struct ScreenCapturer {
     output_path: PathBuf,
@@ -28,7 +29,7 @@ impl ScreenCapturer {
             return Err("Already recording".to_string());
         }
 
-        println!("Starting screen recording on Windows...");
+        debug!("Starting screen recording on Windows...");
         // TODO: Implement actual recording with Desktop Duplication API
         // 1. Initialize DXGI
         // 2. Get IDXGIOutputDuplication
@@ -44,7 +45,7 @@ impl ScreenCapturer {
             return Err("Not currently recording".to_string());
         }
 
-        println!("Stopping screen recording on Windows...");
+        debug!("Stopping screen recording on Windows...");
         // TODO: Stop capture and finalize Media Foundation output
         
         self.is_recording = false;

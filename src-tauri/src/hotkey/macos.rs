@@ -2,6 +2,7 @@
 // Hotkey: Cmd+Shift+R
 
 use super::{HotkeyCallback, HotkeyManager};
+use log::debug;
 
 pub struct MacOSHotkeyManager {
     callback: Option<HotkeyCallback>,
@@ -15,7 +16,7 @@ impl MacOSHotkeyManager {
 
 impl HotkeyManager for MacOSHotkeyManager {
     fn register(&mut self, callback: HotkeyCallback) -> Result<(), String> {
-        println!("Registering global hotkey: Cmd+Shift+R on macOS");
+        debug!("Registering global hotkey: Cmd+Shift+R on macOS");
         // TODO: Implement CGEventTap for Cmd+Shift+R
         // 1. Create event tap with kCGEventKeyDown and kCGEventKeyUp
         // 2. Filter for Command+Shift+R key combination
@@ -27,7 +28,7 @@ impl HotkeyManager for MacOSHotkeyManager {
     }
 
     fn unregister(&mut self) -> Result<(), String> {
-        println!("Unregistering global hotkey on macOS");
+        debug!("Unregistering global hotkey on macOS");
         // TODO: Remove CGEventTap
         self.callback = None;
         Ok(())
