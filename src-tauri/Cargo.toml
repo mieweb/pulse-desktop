@@ -34,3 +34,8 @@ screen-capture = { path = "../crates/screen-capture" }
 # Time tracking
 chrono = "0.4"
 
+# Base64 encoding for thumbnails
+base64 = "0.22"
+
+# Thumbnail generation (using FFmpeg command line)
+
