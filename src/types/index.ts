@@ -54,6 +54,7 @@ export interface TimelineEntry {
   resolution: OutputResolution;
   micEnabled: boolean;
   notes?: string;
+  checksum?: string; // SHA256 hash for file integrity and rename detection
 }
 
 export interface ProjectTimeline {

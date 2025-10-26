@@ -8,6 +8,8 @@ use crate::events;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::collections::HashMap;
+use sha2::{Sha256, Digest};
+use std::io::Read;
 
 #[cfg(target_os = "macos")]
 use crate::capture::macos::ScreenCapturer;
@@ -458,6 +460,8 @@ pub struct TimelineEntry {
     pub resolution: Resolution,
     pub mic_enabled: bool,
     pub notes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checksum: Option<String>, // SHA256 hash for file integrity and rename detection
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -678,6 +682,29 @@ pub async fn get_project_timeline(project_name: String, state: State<'_, AppStat
     Ok(timeline)
 }
 
+/// Calculate SHA256 checksum of a file
+fn calculate_file_checksum(file_path: &PathBuf) -> Result<String, String> {
+    let mut file = fs::File::open(file_path)
+        .map_err(|e| format!("Failed to open file for checksum: {}", e))?;
+    
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 8192]; // 8KB buffer for efficient reading
+    
+    loop {
+        let bytes_read = file.read(&mut buffer)
+            .map_err(|e| format!("Failed to read file for checksum: {}", e))?;
+        
+        if bytes_read == 0 {
+            break;
+        }
+        
+        hasher.update(&buffer[..bytes_read]);
+    }
+    
+    let result = hasher.finalize();
+    Ok(format!("{:x}", result))
+}
+
 /// Save timeline for a specific project
 #[tauri::command]
 pub async fn save_project_timeline(project_name: String, timeline: ProjectTimeline, state: State<'_, AppState>) -> Result<(), String> {
@@ -702,6 +729,11 @@ pub async fn save_project_timeline(project_name: String, timeline: ProjectTimeli
 }
 
 /// Reconcile timeline with actual files in project folder
+/// This function:
+/// 1. Detects deleted files and removes them from timeline
+/// 2. Detects new files and adds them to timeline
+/// 3. Uses checksums to detect renamed files
+/// 4. Updates/calculates checksums for all files
 #[tauri::command]
 pub async fn reconcile_project_timeline(project_name: String, state: State<'_, AppState>) -> Result<u32, String> {
     let output_folder = {
@@ -738,10 +770,10 @@ pub async fn reconcile_project_timeline(project_name: String, state: State<'_, A
         }
     };
 
-    // Get all video files in the project folder
+    // Get all video files in the project folder with their checksums
     let entries = fs::read_dir(&project_folder).map_err(|e| format!("Failed to read project folder: {}", e))?;
     
-    let mut video_files = Vec::new();
+    let mut actual_files: HashMap<String, String> = HashMap::new(); // filename -> checksum
     for entry in entries {
         let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
         let path = entry.path();
@@ -751,68 +783,120 @@ pub async fn reconcile_project_timeline(project_name: String, state: State<'_, A
                 let ext_str = extension.to_string_lossy().to_lowercase();
                 if matches!(ext_str.as_str(), "mp4" | "mov" | "avi" | "mkv" | "webm" | "m4v") {
                     if let Some(filename) = path.file_name() {
-                        video_files.push(filename.to_string_lossy().to_string());
+                        let filename_str = filename.to_string_lossy().to_string();
+                        // Calculate checksum for the file
+                        if let Ok(checksum) = calculate_file_checksum(&path) {
+                            actual_files.insert(filename_str, checksum);
+                        } else {
+                            println!("⚠️  Failed to calculate checksum for {}", filename_str);
+                        }
                     }
                 }
             }
         }
     }
 
-    // Find files that are not in the timeline
+    let mut changes_count = 0u32;
+
+    // Step 1: Remove deleted files from timeline
+    let original_count = timeline.entries.len();
+    timeline.entries.retain(|entry| {
+        let exists = actual_files.contains_key(&entry.filename);
+        if !exists {
+            println!("🗑️  Removed deleted file from timeline: {}", entry.filename);
+        }
+        exists
+    });
+    let deleted_count = original_count - timeline.entries.len();
+    changes_count += deleted_count as u32;
+
+    // Step 2: Build checksum maps for rename detection
+    let mut timeline_checksums: HashMap<String, usize> = HashMap::new(); // checksum -> index in entries
+    for (idx, entry) in timeline.entries.iter().enumerate() {
+        if let Some(checksum) = &entry.checksum {
+            timeline_checksums.insert(checksum.clone(), idx);
+        }
+    }
+
+    let mut actual_checksums: HashMap<String, String> = HashMap::new(); // checksum -> filename
+    for (filename, checksum) in &actual_files {
+        actual_checksums.insert(checksum.clone(), filename.clone());
+    }
+
+    // Step 3: Detect renames by matching checksums
+    for entry in timeline.entries.iter_mut() {
+        if let Some(old_checksum) = &entry.checksum {
+            // If the current filename doesn't exist but checksum matches another file
+            if !actual_files.contains_key(&entry.filename) {
+                if let Some(new_filename) = actual_checksums.get(old_checksum) {
+                    println!("📝 Detected rename: {} -> {}", entry.filename, new_filename);
+                    entry.filename = new_filename.clone();
+                    entry.notes = Some(format!("File renamed during reconciliation"));
+                    changes_count += 1;
+                }
+            }
+        }
+    }
+
+    // Step 4: Update checksums for existing entries
+    for entry in timeline.entries.iter_mut() {
+        if let Some(checksum) = actual_files.get(&entry.filename) {
+            if entry.checksum.is_none() || entry.checksum.as_ref() != Some(checksum) {
+                entry.checksum = Some(checksum.clone());
+            }
+        }
+    }
+
+    // Step 5: Add new files that aren't in timeline
     let existing_filenames: std::collections::HashSet<String> = timeline.entries
         .iter()
         .map(|entry| entry.filename.clone())
         .collect();
 
-    let mut orphaned_files = Vec::new();
-    for video_file in video_files {
-        if !existing_filenames.contains(&video_file) {
-            orphaned_files.push(video_file);
+    for (filename, checksum) in &actual_files {
+        if !existing_filenames.contains(filename) {
+            let file_path = project_folder.join(filename);
+            
+            // Try to get file metadata
+            let metadata = fs::metadata(&file_path);
+            let (created_time, file_size) = if let Ok(meta) = metadata {
+                let created = meta.created().unwrap_or(std::time::SystemTime::now());
+                let size = meta.len();
+                (created, size)
+            } else {
+                (std::time::SystemTime::now(), 0)
+            };
+
+            // Convert system time to RFC3339 string
+            let created_rfc3339 = match created_time.duration_since(std::time::UNIX_EPOCH) {
+                Ok(duration) => {
+                    let datetime = chrono::DateTime::<chrono::Utc>::from_timestamp(duration.as_secs() as i64, 0);
+                    datetime.map(|dt| dt.to_rfc3339()).unwrap_or_else(|| chrono::Utc::now().to_rfc3339())
+                }
+                Err(_) => chrono::Utc::now().to_rfc3339(),
+            };
+
+            // Try to detect video properties from filename patterns
+            let (aspect_ratio, width, height) = detect_video_properties_from_filename(filename);
+
+            // Create timeline entry for new file
+            let entry_id = uuid::Uuid::new_v4().to_string();
+            let entry = TimelineEntry {
+                id: entry_id,
+                filename: filename.clone(),
+                recorded_at: created_rfc3339,
+                duration_ms: estimate_duration_from_file_size(file_size),
+                aspect_ratio,
+                resolution: Resolution { width, height },
+                mic_enabled: true,
+                notes: Some("Added during timeline reconciliation".to_string()),
+                checksum: Some(checksum.clone()),
+            };
+
+            println!("➕ Added new file to timeline: {}", filename);
+            timeline.entries.push(entry);
+            changes_count += 1;
         }
-    }
-
-    // Add orphaned files to timeline
-    let mut added_count = 0u32;
-    for filename in orphaned_files {
-        let file_path = project_folder.join(&filename);
-        
-        // Try to get file metadata
-        let metadata = fs::metadata(&file_path);
-        let (created_time, file_size) = if let Ok(meta) = metadata {
-            let created = meta.created().unwrap_or(std::time::SystemTime::now());
-            let size = meta.len();
-            (created, size)
-        } else {
-            (std::time::SystemTime::now(), 0)
-        };
-
-        // Convert system time to RFC3339 string
-        let created_rfc3339 = match created_time.duration_since(std::time::UNIX_EPOCH) {
-            Ok(duration) => {
-                let datetime = chrono::DateTime::<chrono::Utc>::from_timestamp(duration.as_secs() as i64, 0);
-                datetime.map(|dt| dt.to_rfc3339()).unwrap_or_else(|| chrono::Utc::now().to_rfc3339())
-            }
-            Err(_) => chrono::Utc::now().to_rfc3339(),
-        };
-
-        // Try to detect video properties from filename patterns
-        let (aspect_ratio, width, height) = detect_video_properties_from_filename(&filename);
-
-        // Create timeline entry for orphaned file
-        let entry_id = uuid::Uuid::new_v4().to_string();
-        let entry = TimelineEntry {
-            id: entry_id,
-            filename: filename.clone(),
-            recorded_at: created_rfc3339,
-            duration_ms: estimate_duration_from_file_size(file_size), // Rough estimate
-            aspect_ratio,
-            resolution: Resolution { width, height },
-            mic_enabled: true, // Default assumption
-            notes: Some("Added during timeline reconciliation".to_string()),
-        };
-
-        timeline.entries.push(entry);
-        added_count += 1;
     }
 
     // Sort entries by recorded_at timestamp
@@ -830,7 +914,8 @@ pub async fn reconcile_project_timeline(project_name: String, state: State<'_, A
     fs::write(&timeline_path, timeline_json)
         .map_err(|e| format!("Failed to write timeline.json: {}", e))?;
 
-    Ok(added_count)
+    println!("✅ Reconciliation complete: {} changes detected", changes_count);
+    Ok(changes_count)
 }
 
 // Helper function to detect video properties from filename
@@ -911,6 +996,10 @@ pub async fn add_timeline_entry(
         *mic
     };
 
+    // Calculate checksum for the newly recorded file
+    let file_path = output_folder.join(&project_name).join(&filename);
+    let checksum = calculate_file_checksum(&file_path).ok(); // Optional, may fail if file is still being written
+
     // Create new entry
     let entry_id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now().to_rfc3339();
@@ -924,6 +1013,7 @@ pub async fn add_timeline_entry(
         resolution: Resolution { width, height },
         mic_enabled,
         notes: None,
+        checksum,
     };
 
     // Add entry and update metadata
