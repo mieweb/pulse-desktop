@@ -267,8 +267,8 @@ export default function ClipsList({
       }
       setFocusedClipId(clip.id);
     }
-    // Delete key
-    else if (e.key === 'Delete' || e.key === 'Backspace') {
+    // Delete key (only if not editing)
+    else if ((e.key === 'Delete' || e.key === 'Backspace') && editingId !== clip.id) {
       e.preventDefault();
       if (debugAriaFocus) {
         console.log('⌨️ [KEYBOARD] Delete clip:', clip.label || clip.filename);
