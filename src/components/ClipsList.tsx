@@ -329,7 +329,10 @@ export default function ClipsList({
 
   // Format duration (milliseconds to MM:SS)
   const formatDuration = (durationMs: number): string => {
-    const totalSeconds = Math.floor(durationMs / 1000);
+    if (!durationMs || isNaN(durationMs) || durationMs < 0) {
+      return "0:00";
+    }
+    const totalSeconds = Math.round(durationMs / 1000);
     const mins = Math.floor(totalSeconds / 60);
     const secs = totalSeconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
@@ -490,8 +493,6 @@ export default function ClipsList({
                 <span className="clip-duration">{formatDuration(clip.durationMs)}</span>
                 <span className="clip-separator">•</span>
                 <span className="clip-resolution">{clip.resolution.width}×{clip.resolution.height}</span>
-                <span className="clip-separator">•</span>
-                <span className="clip-aspect">{clip.aspectRatio}</span>
                 <span className="clip-separator">•</span>
                 <span className="clip-time">{formatDate(clip.recordedAt)}</span>
                 {clip.micEnabled && (

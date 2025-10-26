@@ -120,14 +120,14 @@ impl ScreenCapturer {
     }
 
     /// Stop recording and save the file
-    pub async fn stop_recording(&mut self) -> Result<PathBuf, String> {
+    pub async fn stop_recording(&mut self) -> Result<(PathBuf, f64), String> {
         if !self.is_recording {
             return Err("Not currently recording".to_string());
         }
 
         info!("⏹️  Stopping native screen capture...");
         
-        let duration = self.start_time
+        let _duration = self.start_time
             .map(|start| start.elapsed())
             .ok_or("No start time recorded")?;
 
@@ -137,21 +137,17 @@ impl ScreenCapturer {
 
         // Stop the recorder
         if let Some(mut recorder) = self.recorder.take() {
-            recorder.stop()
+            let (_, recorded_duration) = recorder.stop()
                 .map_err(|e| format!("Failed to stop recording: {}", e))?;
             
-            let recorded_duration = recorder.duration();
-            
-            info!("📊 Recording complete:");
-            info!("  Wall clock duration: {:.2}s", duration.as_secs_f32());
-            info!("  Recorded duration: {:.2}s", recorded_duration);
+            info!("📊 Recording complete: {:.2}s", recorded_duration);
             info!("✅ Video saved to: {:?}", output_path);
             
             self.is_recording = false;
             self.pre_initialized = false; // Need to re-initialize for next recording
             self.prepared_output_path = None;
             
-            Ok(output_path)
+            Ok((output_path, recorded_duration))
         } else {
             Err("No recorder available".to_string())
         }

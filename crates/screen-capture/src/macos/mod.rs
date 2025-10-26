@@ -9,6 +9,7 @@ use crate::RecordingConfig;
 use log::{info, debug, warn, error};
 use std::ffi::CStr;
 use std::os::raw::c_char;
+use std::path::PathBuf;
 
 /// C-callable logging function for Objective-C code
 /// This allows Objective-C to log through Rust's log system with delta timestamps
@@ -113,11 +114,15 @@ impl NativeRecorder {
         }
     }
     
-    pub fn stop(&mut self) -> Result<(), String> {
+    pub fn stop(&mut self) -> Result<(PathBuf, f64), String> {
         if let Some(recorder) = &mut self.recorder {
+            // Stop the recorder first
             recorder.stop()?;
-            info!("⏹️  ScreenCaptureKit recording stopped");
-            Ok(())
+            
+            // Then get the duration (which should now be stored in finalDuration)
+            let duration = recorder.duration();
+            info!("⏹️  ScreenCaptureKit recording stopped, duration: {:.2}s", duration);
+            Ok((self.config.output_path.clone(), duration))
         } else {
             Err("Recorder not initialized".to_string())
         }

@@ -27,7 +27,6 @@ export function useRecording() {
 
     // Listen for clip saved events
     const unlistenClipSaved = listen<ClipSavedEvent>('clip-saved', (event) => {
-      console.log('💾 Frontend received clip-saved:', event.payload);
       setRecordingState((prev) => ({
         ...prev,
         // Don't change status - it's already set to idle by the recording-status event

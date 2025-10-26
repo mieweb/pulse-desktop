@@ -240,7 +240,8 @@
   font-size: 11px;
   color: var(--color-text-muted);
   white-space: nowrap;
-  overflow: hidden;
+  overflow: visible;
+  flex-wrap: wrap;
 }
 
 .clip-separator {
