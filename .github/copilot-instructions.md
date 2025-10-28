@@ -298,9 +298,18 @@ The Objective-C macros convert NSString to C strings and call Rust functions:
 * **Isolated improvements**: If a change grows complex, extract it into a new function, module, or component instead of modifying multiple areas.
 * **Direct requests only**: Large refactors or architectural shifts should only occur when explicitly requested.
 
+### 🪶 All Changes should be considered for Pull Request Philosophy
+
+* **Smallest viable change**: Always make the smallest change that fully solves the problem.
+* **Fewest files first**: Start with the minimal number of files required.
+* **No sweeping edits**: Broad refactors or multi-module changes must be split or proposed as new components.
+* **Isolated improvements**: If a change grows complex, extract it into a new function, module, or component instead of modifying multiple areas.
+* **Direct requests only**: Large refactors or architectural shifts should only occur when explicitly requested.
+
 ### Code Quality Checklist
 - [ ] **DRY**: No code duplication - extracted reusable functions?
 - [ ] **KISS**: Simplest solution that works?
+- [ ] **Minimal Changes**: Smallest viable change made for PR?
 - [ ] **Naming**: Self-documenting function/variable names?
 - [ ] **Size**: Functions small and focused?
 - [ ] **Dead Code**: Removed or archived appropriately?
