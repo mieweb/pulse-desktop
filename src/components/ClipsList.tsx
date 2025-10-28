@@ -494,6 +494,8 @@ export default function ClipsList({
                 <span className="clip-separator">•</span>
                 <span className="clip-resolution">{clip.resolution.width}×{clip.resolution.height}</span>
                 <span className="clip-separator">•</span>
+                <span className="clip-aspect">{clip.aspectRatio}</span>
+                <span className="clip-separator">•</span>
                 <span className="clip-time">{formatDate(clip.recordedAt)}</span>
                 {clip.micEnabled && (
                   <>

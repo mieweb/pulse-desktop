@@ -1295,11 +1295,24 @@ pub async fn reconcile_project_timeline(project_name: String, state: State<'_, A
 
             // Create timeline entry for new file
             let entry_id = uuid::Uuid::new_v4().to_string();
+            
+            // Calculate actual video duration
+            let duration_ms = match calculate_video_duration(&file_path) {
+                Ok(duration) => {
+                    info!("📊 Calculated actual video duration: {}ms", duration);
+                    duration
+                },
+                Err(e) => {
+                    warn!("⚠️ Failed to calculate video duration, using file size estimate: {}", e);
+                    estimate_duration_from_file_size(file_size)
+                }
+            };
+
             let entry = TimelineEntry {
                 id: entry_id,
                 filename: filename.clone(),
                 recorded_at: created_rfc3339,
-                duration_ms: estimate_duration_from_file_size(file_size),
+                duration_ms,
                 aspect_ratio,
                 resolution: Resolution { width, height },
                 mic_enabled: true,
@@ -1355,10 +1368,42 @@ fn detect_video_properties_from_filename(filename: &str) -> (String, u32, u32) {
     }
 }
 
-// Helper function to estimate duration from file size (very rough)
+// Helper function to calculate actual video duration from file
+#[cfg(target_os = "macos")]
+fn calculate_video_duration(file_path: &std::path::Path) -> Result<u64, String> {
+    use std::process::Command;
+    
+    // Use ffprobe to get actual video duration
+    let output = Command::new("ffprobe")
+        .args([
+            "-v", "quiet",
+            "-show_entries", "format=duration",
+            "-of", "csv=p=0",
+            file_path.to_str().ok_or("Invalid file path")?
+        ])
+        .output()
+        .map_err(|e| format!("Failed to run ffprobe: {}", e))?;
+    
+    if !output.status.success() {
+        return Err("ffprobe failed to read video duration".to_string());
+    }
+    
+    let duration_str = String::from_utf8_lossy(&output.stdout);
+    let duration_seconds: f64 = duration_str.trim().parse()
+        .map_err(|e| format!("Failed to parse duration: {}", e))?;
+    
+    Ok((duration_seconds * 1000.0) as u64) // Convert to milliseconds
+}
+
+#[cfg(not(target_os = "macos"))]
+fn calculate_video_duration(file_path: &std::path::Path) -> Result<u64, String> {
+    // Fallback for non-macOS platforms
+    estimate_duration_from_file_size(std::fs::metadata(file_path)?.len())
+}
+
+// Helper function to estimate duration from file size (fallback)
 fn estimate_duration_from_file_size(file_size: u64) -> u64 {
     // Very rough estimate: assume ~1MB per second for typical screen recordings
-    // This is just a placeholder until we can read actual video metadata
     let estimated_seconds = (file_size / (1024 * 1024)).max(1); // At least 1 second
     estimated_seconds * 1000 // Convert to milliseconds
 }
