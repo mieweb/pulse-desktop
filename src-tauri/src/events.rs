@@ -28,6 +28,12 @@ pub fn emit_status(app: &AppHandle, status: &str) -> Result<(), String> {
         .map_err(|e| format!("Failed to emit status: {}", e))
 }
 
+/// Emit pre-init status to frontend
+pub fn emit_pre_init_status(app: &AppHandle, status: &str) -> Result<(), String> {
+    app.emit("pre-init-status-changed", status)
+        .map_err(|e| format!("Failed to emit pre-init status: {}", e))
+}
+
 /// Emit clip saved event to frontend
 pub fn emit_clip_saved(app: &AppHandle, event: ClipSavedEvent) -> Result<(), String> {
     app.emit("clip-saved", event)
