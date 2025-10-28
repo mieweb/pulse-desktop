@@ -1,8 +1,9 @@
-use tauri::{State, AppHandle, Manager};
+use tauri::{State, AppHandle, Manager, Emitter};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use crate::state::AppState;
+use std::time::{Duration, Instant};
+use crate::state::{AppState, PreInitStatus};
 use crate::events;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -120,6 +121,11 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                                         let elapsed = press_time.elapsed();
                                         info!("✅ Screen capture started in {:?}", elapsed);
                                         
+                                        // Update last activity
+                                        if let Ok(mut activity) = state.last_activity.lock() {
+                                            *activity = Instant::now();
+                                        }
+                                        
                                         // Mark recording as actually active now
                                         RECORDING_ACTIVE.store(true, Ordering::SeqCst);
                                         
@@ -166,11 +172,12 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                             }
                         });
                     } else {
-                        // Slow path: need to create capturer (this should rarely happen)
-                        warn!("🐌 SLOW PATH: Creating capturer on demand (this should not happen!)");
-                        error!("⚠️  CAPTURER NOT PRE-INITIALIZED!");
-                        error!("💔 We sincerely apologize - you will likely lose the first few seconds of your recording.");
-                        error!("🔧 Please ensure a project is selected before recording to enable fast startup.");
+                        // Auto-initialize path: capturer was sleeping, wake it up automatically
+                        info!("💤 Capturer was sleeping - auto-initializing for recording...");
+                        warn!("⏳ Auto-initialization will add ~2-3 seconds to recording start time");
+                        
+                        // Emit status change to show we're waking up
+                        let _ = events::emit_pre_init_status(app, "Initializing");
                         
                         let app_clone = app.clone();
                         std::thread::spawn(move || {
@@ -225,26 +232,46 @@ pub fn setup_global_shortcut(app: &AppHandle) -> Result<(), Box<dyn std::error::
                             // Create capturer
                             let mut capturer = ScreenCapturer::new(output_folder, mic_enabled, audio_device_id);
                             
-                            // Start recording (blocking call)
+                            // Pre-initialize capturer before starting recording (blocking call)
                             let runtime = tokio::runtime::Runtime::new().unwrap();
-                            match runtime.block_on(capturer.start_recording(capture_region)) {
-                                Ok(_) => {
-                                    let elapsed = press_time.elapsed();
-                                    info!("✅ Screen capture started in {:?}", elapsed);
-                                    error!("⏱️  Slow initialization took {:?} - user lost beginning of recording", elapsed);
-                                    
-                                    // Mark recording as active
-                                    RECORDING_ACTIVE.store(true, Ordering::SeqCst);
-                                    
-                                    // Store capturer in state
-                                    let mut cap = state.capturer.lock().unwrap();
-                                    *cap = Some(capturer);
+                            match runtime.block_on(capturer.pre_initialize(capture_region)) {
+                                Ok(()) => {
+                                    // Now start recording
+                                    match runtime.block_on(capturer.start_recording(capture_region)) {
+                                        Ok(_) => {
+                                            let elapsed = press_time.elapsed();
+                                            info!("✅ Screen capture started in {:?}", elapsed);
+                                            info!("⏰ Auto-initialization took {:?} - recording started successfully", elapsed);
+                                            
+                                            // Mark recording as active
+                                            RECORDING_ACTIVE.store(true, Ordering::SeqCst);
+                                            
+                                            // Store capturer in state
+                                            let mut cap = state.capturer.lock().unwrap();
+                                            *cap = Some(capturer);
+                                        }
+                                        Err(e) => {
+                                            error!("❌ Failed to start recording after pre-initialization: {}", e);
+                                            let _ = events::emit_error(&app_clone, "CAPTURE_ERROR", &e);
+                                            IS_RECORDING.store(false, Ordering::SeqCst);
+                                            RECORDING_ACTIVE.store(false, Ordering::SeqCst);
+                                            let _ = events::emit_status(&app_clone, "idle");
+                                            
+                                            // Resume filesystem watcher on error
+                                            {
+                                                let control = state.watcher_control.lock().unwrap();
+                                                if let Some(watcher) = control.as_ref() {
+                                                    watcher.resume();
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                                 Err(e) => {
-                                    error!("❌ Failed to start recording: {}", e);
+                                    error!("❌ Failed to pre-initialize capturer for auto-wake recording: {}", e);
                                     let _ = events::emit_error(&app_clone, "CAPTURE_ERROR", &e);
                                     IS_RECORDING.store(false, Ordering::SeqCst);
-                                    RECORDING_ACTIVE.store(false, Ordering::SeqCst); // Clear active flag on error
+                                    RECORDING_ACTIVE.store(false, Ordering::SeqCst);
                                     let _ = events::emit_status(&app_clone, "idle");
                                     
                                     // Resume filesystem watcher on error
@@ -859,38 +886,54 @@ pub struct TimelineMetadata {
 /// Get all available projects in the output folder
 #[tauri::command]
 pub async fn get_projects(state: State<'_, AppState>) -> Result<Vec<Project>, String> {
+    use log::{info, debug};
+    
+    info!("🔍 Starting get_projects");
+    
     let output_folder = {
         let folder = state.output_folder.lock().map_err(|e| format!("Failed to lock output folder: {}", e))?;
         folder.clone()
     };
 
+    debug!("📁 Output folder: {:?}", output_folder);
+
     let mut projects = Vec::new();
 
     if !output_folder.exists() {
+        info!("📁 Output folder doesn't exist, returning empty list");
         return Ok(projects);
     }
 
     let entries = fs::read_dir(&output_folder).map_err(|e| format!("Failed to read output folder: {}", e))?;
+    
+    debug!("📂 Reading directory entries...");
+    let mut dir_count = 0;
 
     for entry in entries {
         let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
         let path = entry.path();
 
         if path.is_dir() {
+            dir_count += 1;
             let project_name = path.file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("Unknown")
                 .to_string();
 
+            debug!("📁 Processing project directory: {}", project_name);
+
             // Check for timeline.json file
             let timeline_path = path.join("timeline.json");
             
             if timeline_path.exists() {
+                debug!("📄 Found timeline.json for {}", project_name);
                 // Read timeline to get project info
                 match fs::read_to_string(&timeline_path) {
                     Ok(content) => {
+                        debug!("📖 Read timeline content ({} bytes) for {}", content.len(), project_name);
                         match serde_json::from_str::<ProjectTimeline>(&content) {
                             Ok(timeline) => {
+                                debug!("✅ Parsed timeline for {} ({} videos)", project_name, timeline.metadata.total_videos);
                                 projects.push(Project {
                                     name: project_name,
                                     created_at: timeline.created_at,
@@ -898,7 +941,8 @@ pub async fn get_projects(state: State<'_, AppState>) -> Result<Vec<Project>, St
                                     last_modified: timeline.last_modified,
                                 });
                             }
-                            Err(_) => {
+                            Err(e) => {
+                                debug!("❌ Failed to parse timeline JSON for {}: {}", project_name, e);
                                 // Invalid timeline, create default project entry
                                 let now = chrono::Utc::now().to_rfc3339();
                                 projects.push(Project {
@@ -910,7 +954,8 @@ pub async fn get_projects(state: State<'_, AppState>) -> Result<Vec<Project>, St
                             }
                         }
                     }
-                    Err(_) => {
+                    Err(e) => {
+                        debug!("❌ Failed to read timeline file for {}: {}", project_name, e);
                         // Can't read timeline, create default project entry
                         let now = chrono::Utc::now().to_rfc3339();
                         projects.push(Project {
@@ -922,6 +967,7 @@ pub async fn get_projects(state: State<'_, AppState>) -> Result<Vec<Project>, St
                     }
                 }
             } else {
+                debug!("📄 No timeline.json found for {}, creating default entry", project_name);
                 // No timeline file, create default project entry
                 let now = chrono::Utc::now().to_rfc3339();
                 projects.push(Project {
@@ -934,9 +980,13 @@ pub async fn get_projects(state: State<'_, AppState>) -> Result<Vec<Project>, St
         }
     }
 
+    debug!("📋 Found {} project directories total", dir_count);
+    
     // Sort projects by last modified date (newest first)
+    debug!("🔄 Sorting {} projects by last modified date", projects.len());
     projects.sort_by(|a, b| b.last_modified.cmp(&a.last_modified));
 
+    info!("✅ Finished get_projects: {} projects returned", projects.len());
     Ok(projects)
 }
 
@@ -1001,7 +1051,12 @@ pub async fn create_project(project_name: String, state: State<'_, AppState>) ->
 
 /// Set the current project
 #[tauri::command]
-pub async fn set_current_project(project_name: String, state: State<'_, AppState>) -> Result<(), String> {
+pub async fn set_current_project(project_name: String, app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    use log::{info, debug};
+    
+    info!("🎯 Setting current project to: {}", project_name);
+    let start_time = std::time::Instant::now();
+    
     let output_folder = {
         let folder = state.output_folder.lock().map_err(|e| format!("Failed to lock output folder: {}", e))?;
         folder.clone()
@@ -1010,6 +1065,8 @@ pub async fn set_current_project(project_name: String, state: State<'_, AppState
     let project_folder = output_folder.join(&project_name);
 
     if !project_folder.exists() {
+        let elapsed = start_time.elapsed();
+        debug!("❌ Project folder doesn't exist after {:.1}ms", elapsed.as_millis() as f32);
         return Err("Project does not exist".to_string());
     }
 
@@ -1017,6 +1074,9 @@ pub async fn set_current_project(project_name: String, state: State<'_, AppState
         let mut current = state.current_project.lock().map_err(|e| format!("Failed to lock current project: {}", e))?;
         *current = Some(project_name.clone());
     }
+    
+    let project_set_time = start_time.elapsed();
+    debug!("📝 Project state updated in {:.1}ms", project_set_time.as_millis() as f32);
     
     // Pre-initialize capturer for instant recording startup
     info!("⚡ Pre-initializing capturer for project: {}", project_name);
@@ -1041,35 +1101,88 @@ pub async fn set_current_project(project_name: String, state: State<'_, AppState
         *region
     };
     
-    // Create capturer
-    let mut capturer = ScreenCapturer::new(output_path, mic_enabled, audio_device_id);
+    let capturer_create_time = start_time.elapsed();
+    debug!("📱 Creating capturer after {:.1}ms", capturer_create_time.as_millis() as f32);
     
-    // Pre-initialize (this takes 2-3 seconds)
-    capturer.pre_initialize(capture_region).await
-        .map_err(|e| {
-            warn!("⚠️  Failed to pre-initialize capturer: {}", e);
-            IS_INITIALIZING.store(false, Ordering::SeqCst); // Clear flag on error
-            format!("Failed to pre-initialize recorder: {}", e)
-        })?;
+    let capturer_init_start = start_time.elapsed();
+    debug!("⚡ Starting capturer pre-initialization in background after {:.1}ms (this may take 2-3 seconds)", capturer_init_start.as_millis() as f32);
     
-    info!("✅ Capturer pre-initialized and ready for instant recording");
-    
-    // Store in state
+    // Update status to initializing
     {
-        let mut cap = state.capturer.lock().map_err(|e| format!("Failed to lock capturer: {}", e))?;
-        *cap = Some(capturer);
+        if let Ok(mut status) = state.pre_init_status.lock() {
+            *status = PreInitStatus::Initializing;
+            let _ = events::emit_pre_init_status(&app, "Initializing");
+        }
+        // Update last activity
+        if let Ok(mut activity) = state.last_activity.lock() {
+            *activity = Instant::now();
+        }
     }
     
-    // Clear initializing flag - ready to record
-    IS_INITIALIZING.store(false, Ordering::SeqCst);
+    // Clone app handle for async block
+    let app_clone = app.clone();
+    
+    // Pre-initialize in background (don't block UI)
+    tauri::async_runtime::spawn(async move {
+        // Create capturer inside the background task
+        let mut capturer = ScreenCapturer::new(output_path, mic_enabled, audio_device_id);
+        
+        let bg_start = std::time::Instant::now();
+        match capturer.pre_initialize(capture_region).await {
+            Ok(()) => {
+                let bg_elapsed = bg_start.elapsed();
+                info!("✅ Capturer pre-initialized in background in {:.1}ms and ready for instant recording", bg_elapsed.as_millis() as f32);
+                
+                // Store the initialized capturer in state
+                if let Some(app_state) = app.try_state::<AppState>() {
+                    if let Ok(mut cap) = app_state.capturer.lock() {
+                        *cap = Some(capturer);
+                    } else {
+                        warn!("⚠️  Failed to lock capturer state");
+                    }
+                    
+                    // Update status to ready
+                    if let Ok(mut status) = app_state.pre_init_status.lock() {
+                        *status = PreInitStatus::Ready;
+                        let _ = events::emit_pre_init_status(&app_clone, "Ready");
+                    }
+                } else {
+                    warn!("⚠️  Failed to get app state");
+                }
+                
+                // Clear initializing flag - ready to record
+                IS_INITIALIZING.store(false, Ordering::SeqCst);
+            }
+            Err(e) => {
+                let bg_elapsed = bg_start.elapsed();
+                warn!("⚠️  Failed to pre-initialize capturer in background after {:.1}ms: {}", bg_elapsed.as_millis() as f32, e);
+                
+                // Update status back to not initialized on error
+                if let Some(app_state) = app_clone.try_state::<AppState>() {
+                    if let Ok(mut status) = app_state.pre_init_status.lock() {
+                        *status = PreInitStatus::NotInitialized;
+                        let _ = events::emit_pre_init_status(&app_clone, "NotInitialized");
+                    }
+                }
+                
+                IS_INITIALIZING.store(false, Ordering::SeqCst); // Clear flag on error
+            }
+        }
+    });
 
+    let total_time = start_time.elapsed();
+    info!("🎯 set_current_project completed in {:.1}ms total (capturer initializing in background)", total_time.as_millis() as f32);
     Ok(())
 }
 
 /// Get the current project
 #[tauri::command]
 pub async fn get_current_project(state: State<'_, AppState>) -> Result<Option<String>, String> {
+    use log::debug;
+    
+    debug!("🔍 Getting current project");
     let current = state.current_project.lock().map_err(|e| format!("Failed to lock current project: {}", e))?;
+    debug!("📋 Current project: {:?}", current);
     Ok(current.clone())
 }
 
@@ -1496,4 +1609,352 @@ pub async fn add_timeline_entry(
         .map_err(|e| format!("Failed to write timeline.json: {}", e))?;
 
     Ok(())
+}
+
+/// Get the current pre-initialization status
+#[tauri::command]
+pub async fn get_pre_init_status(state: State<'_, AppState>) -> Result<String, String> {
+    let status = state.pre_init_status.lock().map_err(|e| format!("Failed to lock pre_init_status: {}", e))?;
+    let status_str = match *status {
+        PreInitStatus::NotInitialized => "not_initialized",
+        PreInitStatus::Initializing => "initializing", 
+        PreInitStatus::Ready => "ready",
+        PreInitStatus::ShuttingDown => "shutting_down",
+    };
+    Ok(status_str.to_string())
+}
+
+/// Get the idle timeout setting in minutes
+#[tauri::command]
+pub async fn get_idle_timeout_mins(state: State<'_, AppState>) -> Result<u32, String> {
+    let timeout = state.idle_timeout_mins.lock().map_err(|e| format!("Failed to lock idle_timeout_mins: {}", e))?;
+    Ok(*timeout)
+}
+
+/// Set the idle timeout setting in minutes
+#[tauri::command]
+pub async fn set_idle_timeout_mins(timeout_mins: u32, state: State<'_, AppState>) -> Result<(), String> {
+    let mut timeout = state.idle_timeout_mins.lock().map_err(|e| format!("Failed to lock idle_timeout_mins: {}", e))?;
+    *timeout = timeout_mins;
+    info!("⏰ Idle timeout set to {} minutes", timeout_mins);
+    Ok(())
+}
+
+/// Update last activity timestamp (called on user interactions)
+#[tauri::command] 
+pub async fn update_activity(state: State<'_, AppState>) -> Result<(), String> {
+    let mut activity = state.last_activity.lock().map_err(|e| format!("Failed to lock last_activity: {}", e))?;
+    *activity = Instant::now();
+    debug!("📱 User activity updated");
+    Ok(())
+}
+
+/// Shutdown capturer due to idle timeout
+#[tauri::command]
+pub async fn shutdown_idle_capturer(state: State<'_, AppState>) -> Result<(), String> {
+    info!("💤 Shutting down capturer due to idle timeout");
+    
+    // Update status to shutting down
+    {
+        let mut status = state.pre_init_status.lock().map_err(|e| format!("Failed to lock pre_init_status: {}", e))?;
+        *status = PreInitStatus::ShuttingDown;
+        // Note: emit_pre_init_status needs AppHandle, but this command doesn't have it
+        // Status change will be detected by frontend polling or by idle checker
+    }
+    
+    // Clear the capturer
+    {
+        let mut capturer = state.capturer.lock().map_err(|e| format!("Failed to lock capturer: {}", e))?;
+        *capturer = None;
+    }
+    
+    // Update status to not initialized
+    {
+        let mut status = state.pre_init_status.lock().map_err(|e| format!("Failed to lock pre_init_status: {}", e))?;
+        *status = PreInitStatus::NotInitialized;
+        // Note: emit_pre_init_status needs AppHandle, but this command doesn't have it
+        // Status change will be detected by frontend polling or by idle checker
+    }
+    
+    // Clear initializing flag
+    IS_INITIALIZING.store(false, Ordering::SeqCst);
+    
+    info!("✅ Capturer shutdown complete");
+    Ok(())
+}
+
+/// Start the idle timeout checker background task
+pub fn start_idle_checker(app_handle: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60)); // Check every minute
+        
+        loop {
+            interval.tick().await;
+            
+            if let Some(state) = app_handle.try_state::<AppState>() {
+                // Check if we should shut down due to idle timeout
+                let should_shutdown = {
+                    let timeout_result = state.idle_timeout_mins.lock();
+                    let activity_result = state.last_activity.lock();
+                    let status_result = state.pre_init_status.lock();
+                    
+                    match (timeout_result, activity_result, status_result) {
+                        (Ok(timeout_mins), Ok(last_activity), Ok(status)) => {
+                            if *timeout_mins == 0 {
+                                false // Timeout disabled
+                            } else {
+                                let timeout_duration = Duration::from_secs((*timeout_mins as u64) * 60);
+                                let idle_time = last_activity.elapsed();
+                                
+                                idle_time > timeout_duration && matches!(*status, PreInitStatus::Ready)
+                            }
+                        }
+                        _ => false
+                    }
+                };
+                
+                if should_shutdown {
+                    info!("💤 Idle timeout reached, shutting down pre-initialized capturer");
+                    let _ = events::emit_pre_init_status(&app_handle, "ShuttingDown");
+                    let _ = app_handle.emit_to("main", "pre-init-idle-shutdown", ());
+                    
+                    // Call shutdown command
+                    if let Err(e) = shutdown_idle_capturer(app_handle.state::<AppState>()).await {
+                        warn!("Failed to shutdown idle capturer: {}", e);
+                    }
+                    let _ = events::emit_pre_init_status(&app_handle, "NotInitialized");
+                }
+            }
+        }
+    });
+    
+    info!("⏰ Idle timeout checker started");
+}
+
+/// Toggle pre-initialization state (manual control)
+#[tauri::command]
+pub async fn toggle_pre_init(app: AppHandle, state: State<'_, AppState>) -> Result<String, String> {
+    info!("🔄 Manual toggle of pre-initialization requested");
+    
+    // Update activity first
+    if let Ok(mut activity) = state.last_activity.lock() {
+        *activity = Instant::now();
+    }
+    
+    // Check current status
+    let current_status = {
+        let status = state.pre_init_status.lock().map_err(|e| format!("Failed to lock pre_init_status: {}", e))?;
+        status.clone()
+    };
+    
+    match current_status {
+        PreInitStatus::NotInitialized => {
+            info!("🚀 Starting manual pre-initialization");
+            
+            // Get current project
+            let project_name = {
+                let current = state.current_project.lock().map_err(|e| format!("Failed to lock current project: {}", e))?;
+                current.as_ref().ok_or("No current project set")?.clone()
+            };
+            
+            // Trigger pre-initialization using set_current_project logic
+            let _ = set_current_project(project_name, app, state).await;
+            Ok("Initializing".to_string())
+        }
+        PreInitStatus::Initializing => {
+            info!("⚠️  Pre-initialization already in progress");
+            Ok("Initializing".to_string())
+        }
+        PreInitStatus::Ready => {
+            info!("💤 Shutting down pre-initialized capturer (manual)");
+            let _ = shutdown_idle_capturer(state).await?;
+            let _ = events::emit_pre_init_status(&app, "NotInitialized");
+            Ok("NotInitialized".to_string())
+        }
+        PreInitStatus::ShuttingDown => {
+            info!("⚠️  Capturer is already shutting down");
+            Ok("ShuttingDown".to_string())
+        }
+    }
+}
+
+/// Handle window focus gained event
+#[tauri::command]
+pub async fn on_window_focus_gained(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    info!("👁️  Window gained focus");
+    
+    // Update focus state and get previous state
+    let was_focused = {
+        let mut focused = state.window_focused.lock().map_err(|e| format!("Failed to lock window_focused: {}", e))?;
+        let was_focused = *focused;
+        *focused = true;
+        was_focused
+    }; // Lock is released here
+    
+    // Only restart pre-initialization if window was previously unfocused
+    if !was_focused {
+        info!("🔄 Window came back into view - restarting pre-initialization");
+        
+        // Update activity timestamp
+        if let Ok(mut activity) = state.last_activity.lock() {
+            *activity = Instant::now();
+        }
+        
+        // Check if we have a current project and restart pre-initialization
+        let current_project = {
+            let project = state.current_project.lock().map_err(|e| format!("Failed to lock current_project: {}", e))?;
+            project.clone()
+        };
+        
+        if let Some(project_name) = current_project {
+            // Check current pre-init status
+            let current_status = {
+                let status = state.pre_init_status.lock().map_err(|e| format!("Failed to lock pre_init_status: {}", e))?;
+                status.clone()
+            };
+            
+            // Only restart if not already initializing or ready
+            match current_status {
+                PreInitStatus::NotInitialized | PreInitStatus::ShuttingDown => {
+                    info!("🚀 Restarting pre-initialization for project: {}", project_name);
+                    // Trigger pre-initialization by setting current project again
+                    let _ = set_current_project(project_name, app, state).await;
+                }
+                PreInitStatus::Initializing => {
+                    info!("⚡ Pre-initialization already in progress, no restart needed");
+                }
+                PreInitStatus::Ready => {
+                    info!("✅ Pre-initialization already ready, no restart needed");
+                }
+            }
+        } else {
+            info!("📋 No current project set, skipping pre-initialization restart");
+        }
+    }
+    
+    Ok(())
+}
+
+/// Handle window focus lost event
+#[tauri::command]
+pub async fn on_window_focus_lost(state: State<'_, AppState>) -> Result<(), String> {
+    info!("👁️  Window lost focus");
+    
+    // Update focus state
+    {
+        let mut focused = state.window_focused.lock().map_err(|e| format!("Failed to lock window_focused: {}", e))?;
+        *focused = false;
+    }
+    
+    Ok(())
+}
+
+/// Setup window focus event listeners
+pub fn setup_window_focus_listeners(app_handle: AppHandle) {
+    use tauri::WindowEvent;
+    
+    if let Some(window) = app_handle.get_webview_window("main") {
+        window.on_window_event(move |event| {
+            match event {
+                WindowEvent::Focused(focused) => {
+                    let app_clone = app_handle.clone();
+                    
+                    if *focused {
+                        // Window gained focus - handle sync
+                        handle_window_focus_gained_sync(app_clone);
+                    } else {
+                        // Window lost focus - handle sync
+                        handle_window_focus_lost_sync(app_clone);
+                    }
+                }
+                _ => {}
+            }
+        });
+        
+        info!("✅ Window focus event listeners setup complete");
+    } else {
+        warn!("⚠️  Main window not found for focus event setup");
+    }
+}
+
+/// Handle window focus gained synchronously (to avoid async issues in event callback)
+fn handle_window_focus_gained_sync(app_handle: AppHandle) {
+    let state = app_handle.state::<AppState>();
+    
+    // Update focus state and get previous state
+    let was_focused = {
+        if let Ok(mut focused) = state.window_focused.lock() {
+            let was_focused = *focused;
+            *focused = true;
+            was_focused
+        } else {
+            return; // Failed to lock, skip processing
+        }
+    };
+    
+    if !was_focused {
+        info!("🔄 Window came back into view - scheduling pre-initialization restart");
+        
+        // Update activity timestamp
+        if let Ok(mut activity) = state.last_activity.lock() {
+            *activity = Instant::now();
+        }
+        
+        // Spawn async task to handle pre-initialization restart
+        let app_clone = app_handle.clone();
+        tauri::async_runtime::spawn(async move {
+            let state = app_clone.state::<AppState>();
+            
+            // Check if we have a current project and restart pre-initialization
+            let current_project = {
+                if let Ok(project) = state.current_project.lock() {
+                    project.clone()
+                } else {
+                    return; // Failed to lock
+                }
+            };
+            
+            if let Some(project_name) = current_project {
+                // Check current pre-init status
+                let current_status = {
+                    if let Ok(status) = state.pre_init_status.lock() {
+                        status.clone()
+                    } else {
+                        return; // Failed to lock
+                    }
+                };
+                
+                // Only restart if not already initializing or ready
+                match current_status {
+                    PreInitStatus::NotInitialized | PreInitStatus::ShuttingDown => {
+                        info!("🚀 Restarting pre-initialization for project: {}", project_name);
+                        // Trigger pre-initialization by setting current project again
+                        if let Err(e) = set_current_project(project_name, app_clone.clone(), state).await {
+                            warn!("Failed to restart pre-initialization: {}", e);
+                        }
+                    }
+                    PreInitStatus::Initializing => {
+                        info!("⚡ Pre-initialization already in progress, no restart needed");
+                    }
+                    PreInitStatus::Ready => {
+                        info!("✅ Pre-initialization already ready, no restart needed");
+                    }
+                }
+            } else {
+                info!("📋 No current project set, skipping pre-initialization restart");
+            }
+        });
+    }
+}
+
+/// Handle window focus lost synchronously
+fn handle_window_focus_lost_sync(app_handle: AppHandle) {
+    info!("👁️  Window lost focus");
+    
+    let state = app_handle.state::<AppState>();
+    
+    // Update focus state
+    if let Ok(mut focused) = state.window_focused.lock() {
+        *focused = false;
+    }; // Add semicolon to drop temporaries sooner
 }

@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::time::Instant;
 use crate::fs_watcher::WatcherControl;
 
 #[cfg(target_os = "macos")]
@@ -7,6 +8,15 @@ use crate::capture::macos::ScreenCapturer;
 
 #[cfg(target_os = "windows")]
 use crate::capture::windows::ScreenCapturer;
+
+/// Pre-initialization status for capturer
+#[derive(Debug, Clone, PartialEq)]
+pub enum PreInitStatus {
+    NotInitialized,
+    Initializing,
+    Ready,
+    ShuttingDown,
+}
 
 /// Application state for managing recording settings
 pub struct AppState {
@@ -21,6 +31,14 @@ pub struct AppState {
     pub capture_region: Mutex<Option<(u32, u32, u32, u32)>>, // x, y, width, height
     pub current_project: Mutex<Option<String>>,
     pub watcher_control: Mutex<Option<WatcherControl>>,
+    
+    // Pre-initialization state tracking
+    pub pre_init_status: Mutex<PreInitStatus>,
+    pub last_activity: Mutex<Instant>,
+    pub idle_timeout_mins: Mutex<u32>, // Default to 30 minutes
+    
+    // Window focus tracking
+    pub window_focused: Mutex<bool>, // Track if window is currently focused
 }
 
 impl AppState {
@@ -49,6 +67,14 @@ impl AppState {
             capture_region: Mutex::new(None), // Start with full screen (no region)
             current_project: Mutex::new(None),
             watcher_control: Mutex::new(None),
+            
+            // Initialize pre-init state tracking
+            pre_init_status: Mutex::new(PreInitStatus::NotInitialized),
+            last_activity: Mutex::new(Instant::now()),
+            idle_timeout_mins: Mutex::new(5), // 5 mins
+            
+            // Initialize window focus tracking
+            window_focused: Mutex::new(true), // Assume focused on startup
         }
     }
 }
