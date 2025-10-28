@@ -34,8 +34,8 @@ fn main() -> Result<(), String> {
     
     // Stop and save
     println!("\n⏹️  Stopping...");
-    let output_path = recorder.stop()?;
-    println!("✅ Recording saved to: {:?}\n", output_path);
+    let (output_path, duration) = recorder.stop()?;
+    println!("✅ Recording saved to: {:?} (duration: {:.2}s)\n", output_path, duration);
     
     // Verify file exists
     if output_path.exists() {
