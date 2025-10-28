@@ -1334,14 +1334,18 @@ pub async fn reconcile_project_timeline(project_name: String, state: State<'_, A
     timeline.metadata.total_videos = timeline.entries.len() as u32;
     timeline.metadata.total_duration = timeline.entries.iter().map(|e| e.duration_ms).sum();
 
-    // Save updated timeline
-    let timeline_json = serde_json::to_string_pretty(&timeline)
-        .map_err(|e| format!("Failed to serialize timeline: {}", e))?;
+    // Only save timeline if changes were detected (avoid infinite filesystem watcher loop)
+    if changes_count > 0 {
+        let timeline_json = serde_json::to_string_pretty(&timeline)
+            .map_err(|e| format!("Failed to serialize timeline: {}", e))?;
 
-    fs::write(&timeline_path, timeline_json)
-        .map_err(|e| format!("Failed to write timeline.json: {}", e))?;
-
-    info!("✅ Reconciliation complete: {} changes detected", changes_count);
+        fs::write(&timeline_path, timeline_json)
+            .map_err(|e| format!("Failed to write timeline.json: {}", e))?;
+        
+        info!("✅ Reconciliation complete: {} changes detected and saved", changes_count);
+    } else {
+        debug!("✅ Reconciliation complete: 0 changes detected (no file write needed)");
+    }
     Ok(changes_count)
 }
 
