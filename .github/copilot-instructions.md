@@ -1,5 +1,8 @@
 # Pulse Desktop - GitHub Copilot Instructions
 
+<!-- https://github.com/mieweb/template-mieweb-opensource/blob/main/.github/copilot-instructions.md -->
+
+
 ## Project Overview
 
 **Pulse Desktop** is a minimal Tauri + React desktop application for macOS and Windows that enables push-to-hold screen capture with the following capabilities:
@@ -286,6 +289,14 @@ The Objective-C macros convert NSString to C strings and call Rust functions:
 
 
 ## Quick Reference
+
+### 🪶 All Changes should be considered for Pull Request Philosophy
+
+* **Smallest viable change**: Always make the smallest change that fully solves the problem.
+* **Fewest files first**: Start with the minimal number of files required.
+* **No sweeping edits**: Broad refactors or multi-module changes must be split or proposed as new components.
+* **Isolated improvements**: If a change grows complex, extract it into a new function, module, or component instead of modifying multiple areas.
+* **Direct requests only**: Large refactors or architectural shifts should only occur when explicitly requested.
 
 ### Code Quality Checklist
 - [ ] **DRY**: No code duplication - extracted reusable functions?
