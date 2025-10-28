@@ -11,9 +11,14 @@ export function useRecording() {
     clipCount: 0,
   });
 
+  console.log('🔄 useRecording state:', recordingState);
+
   useEffect(() => {
+    console.log('🎧 Setting up event listeners...');
+    
     // Listen for status updates from Rust backend
     const unlistenStatus = listen<string>('recording-status', (event) => {
+      console.log('🎯 Frontend received status:', event.payload);
       setRecordingState((prev) => ({
         ...prev,
         status: event.payload as RecordingState['status'],
@@ -40,8 +45,11 @@ export function useRecording() {
       }));
     });
 
+    console.log('✅ Event listeners set up');
+
     // Cleanup listeners
     return () => {
+      console.log('🧹 Cleaning up event listeners...');
       unlistenStatus.then((fn) => fn());
       unlistenClipSaved.then((fn) => fn());
       unlistenError.then((fn) => fn());
