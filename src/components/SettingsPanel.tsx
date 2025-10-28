@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useEffect, useState } from 'react';
 import type { AppSettings, CaptureMode, AspectRatio, AudioDevice } from '../types';
+import { useActivity } from '../hooks/useActivity';
 import './SettingsPanel.css';
 
 interface SettingsPanelProps {
@@ -14,6 +15,7 @@ export function SettingsPanel({
   onSettingsChange,
   onCaptureModeChange,
 }: SettingsPanelProps) {
+  const { updateActivity } = useActivity();
   const [audioDevices, setAudioDevices] = useState<AudioDevice[]>([]);
   const [loadingDevices, setLoadingDevices] = useState(true);
 
@@ -40,6 +42,7 @@ export function SettingsPanel({
   }, []);
 
   const handleCaptureModeChange = (mode: CaptureMode) => {
+    updateActivity();
     onSettingsChange({ captureMode: mode });
     if (onCaptureModeChange) {
       onCaptureModeChange(mode);
@@ -47,20 +50,24 @@ export function SettingsPanel({
   };
 
   const handleAspectChange = (aspect: AspectRatio) => {
+    updateActivity();
     onSettingsChange({ aspectRatio: aspect });
   };
 
   const handleScaleToggle = () => {
+    updateActivity();
     onSettingsChange({ scaleToPreset: !settings.scaleToPreset });
   };
 
   const handleMicToggle = () => {
+    updateActivity();
     const newValue = !settings.micEnabled;
     onSettingsChange({ micEnabled: newValue });
     invoke('set_mic_enabled', { enabled: newValue });
   };
 
   const handleAudioDeviceChange = (deviceId: string) => {
+    updateActivity();
     onSettingsChange({ selectedAudioDevice: deviceId });
     // Update backend with selected device
     invoke('set_audio_device', { deviceId })

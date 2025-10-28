@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { TimelineEntry } from '../types';
 import { useUndoRedo } from '../hooks/useUndoRedo';
+import { useActivity } from '../hooks/useActivity';
 import './ClipsList.css';
 
 interface ClipsListProps {
@@ -19,6 +20,7 @@ export default function ClipsList({
   onClipsUpdate,
   debugAriaFocus = false
 }: ClipsListProps) {
+  const { updateActivity } = useActivity();
   const { state: clips, setState: setClips, canUndo, canRedo, undo, redo } = useUndoRedo<TimelineEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [draggedClipId, setDraggedClipId] = useState<string | null>(null);
@@ -84,6 +86,7 @@ export default function ClipsList({
     // Prevent text selection during drag
     e.preventDefault();
     
+    updateActivity();
     setDraggedClipId(clipId);
     setDropIndicatorPosition(null);
   };
@@ -165,6 +168,7 @@ export default function ClipsList({
 
   // Label editing handlers
   const handleLabelEdit = (clip: TimelineEntry) => {
+    updateActivity();
     setEditingId(clip.id);
     setEditLabel(clip.label || clip.filename);
   };
@@ -172,6 +176,7 @@ export default function ClipsList({
   const handleLabelSave = async (clip: TimelineEntry) => {
     if (!projectName) return;
 
+    updateActivity();
     const updatedClips = clips.map(c =>
       c.id === clip.id ? { ...c, label: editLabel } : c
     );
@@ -279,6 +284,7 @@ export default function ClipsList({
 
   // Move clip up or down (keyboard reordering)
   const moveClip = async (clipId: string, direction: 'up' | 'down') => {
+    updateActivity();
     const clipIndex = clips.findIndex(c => c.id === clipId);
     if (clipIndex === -1) return;
 
@@ -297,6 +303,7 @@ export default function ClipsList({
   const handleDelete = async (clip: TimelineEntry) => {
     if (!projectName || !confirm(`Delete ${clip.label || clip.filename}?`)) return;
 
+    updateActivity();
     // Mark as deleted instead of removing from array
     const updatedClips = clips.map(c =>
       c.id === clip.id 
@@ -318,6 +325,7 @@ export default function ClipsList({
   const handleOpen = async (clip: TimelineEntry) => {
     if (!projectName) return;
 
+    updateActivity();
     try {
       // Construct full path to the clip file
       const clipPath = `${outputFolder}/${projectName}/${clip.filename}`;
@@ -386,7 +394,7 @@ export default function ClipsList({
         <div className="undo-redo-controls" role="group" aria-label="Undo and redo controls">
           <button
             className="undo-redo-btn"
-            onClick={undo}
+            onClick={() => { updateActivity(); undo(); }}
             disabled={!canUndo}
             title="Undo (⌘Z)"
             aria-label="Undo last action"
@@ -396,7 +404,7 @@ export default function ClipsList({
           </button>
           <button
             className="undo-redo-btn"
-            onClick={redo}
+            onClick={() => { updateActivity(); redo(); }}
             disabled={!canRedo}
             title="Redo (⌘Y)"
             aria-label="Redo last action"

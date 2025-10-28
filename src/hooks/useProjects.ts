@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { Project, ProjectTimeline } from '../types';
+import { useActivity } from './useActivity';
 
 interface UseProjectsReturn {
   projects: Project[];
@@ -22,6 +23,9 @@ export function useProjects(): UseProjectsReturn {
   
   // Track if we're currently initializing to prevent duplicate calls (React Strict Mode)
   const initializingRef = useRef(false);
+  
+  // Activity tracking to keep capturer warm
+  const { updateActivity } = useActivity();
 
   const loadProjects = async () => {
     // Prevent duplicate initialization from React Strict Mode
@@ -31,15 +35,22 @@ export function useProjects(): UseProjectsReturn {
     }
     
     initializingRef.current = true;
+    console.log('🔄 Starting loadProjects...');
+    const startTime = performance.now();
     
     try {
       setLoading(true);
       setError(null);
       
+      console.log('📡 Invoking get_projects and get_current_project...');
       const [projectsData, currentProjectData] = await Promise.all([
         invoke<Project[]>('get_projects'),
         invoke<string | null>('get_current_project')
       ]);
+      
+      const invokeTime = performance.now();
+      console.log(`⏱️  Backend calls completed in ${(invokeTime - startTime).toFixed(1)}ms`);
+      console.log(`📊 Loaded ${projectsData.length} projects, current: ${currentProjectData || 'none'}`);
       
       setProjects(projectsData);
       
@@ -47,14 +58,21 @@ export function useProjects(): UseProjectsReturn {
       if (!currentProjectData && projectsData.length > 0) {
         // Projects are already sorted by last_modified (newest first) from backend
         const mostRecentProject = projectsData[0].name;
-        console.log('Auto-selecting most recent project:', mostRecentProject);
+        console.log('🎯 Auto-selecting most recent project:', mostRecentProject);
+        const autoSelectStart = performance.now();
         await invoke('set_current_project', { projectName: mostRecentProject });
+        const autoSelectTime = performance.now();
+        console.log(`⏱️  Auto-select took ${(autoSelectTime - autoSelectStart).toFixed(1)}ms`);
         setCurrentProjectState(mostRecentProject);
       } else {
         setCurrentProjectState(currentProjectData);
       }
+      
+      const totalTime = performance.now() - startTime;
+      console.log(`✅ loadProjects completed in ${totalTime.toFixed(1)}ms total`);
     } catch (err) {
-      console.error('Failed to load projects:', err);
+      const errorTime = performance.now() - startTime;
+      console.error(`❌ Failed to load projects after ${errorTime.toFixed(1)}ms:`, err);
       setError(err as string);
     } finally {
       setLoading(false);
@@ -64,6 +82,7 @@ export function useProjects(): UseProjectsReturn {
 
   const createProject = async (name: string) => {
     try {
+      updateActivity(); // Track user activity
       setError(null);
       await invoke('create_project', { projectName: name });
       await loadProjects(); // Refresh the list
@@ -76,6 +95,7 @@ export function useProjects(): UseProjectsReturn {
 
   const setCurrentProject = async (name: string) => {
     try {
+      updateActivity(); // Track user activity
       setError(null);
       await invoke('set_current_project', { projectName: name });
       setCurrentProjectState(name);
@@ -89,6 +109,7 @@ export function useProjects(): UseProjectsReturn {
   };
 
   const refreshProjects = async () => {
+    updateActivity(); // Track user activity
     await loadProjects();
   };
 
@@ -106,6 +127,7 @@ export function useProjects(): UseProjectsReturn {
 
   const reconcileProjectTimeline = async (name: string): Promise<number> => {
     try {
+      updateActivity(); // Track user activity
       setError(null);
       const addedCount = await invoke<number>('reconcile_project_timeline', { 
         projectName: name 

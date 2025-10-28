@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { Project } from '../types';
+import { useActivity } from '../hooks/useActivity';
 import ClipsList from './ClipsList';
 import './ProjectPanel.css';
 
@@ -42,6 +43,7 @@ export function ProjectPanel({
   debugDragDrop = false,
   debugAriaFocus = false
 }: ProjectPanelProps) {
+  const { updateActivity } = useActivity();
   
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
@@ -96,6 +98,7 @@ export function ProjectPanel({
   }, [currentProject, reconcileProjectTimeline, refreshProjects]);
 
   const handleProjectSelect = async (projectName: string) => {
+    updateActivity();
     if (projectName === 'create-new') {
       setIsCreatingProject(true);
       setNewProjectName('');
@@ -126,6 +129,7 @@ export function ProjectPanel({
   };
 
   const handleBrowseFolder = async () => {
+    updateActivity();
     if (!currentProject) return;
 
     try {
@@ -141,6 +145,7 @@ export function ProjectPanel({
 
   const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault();
+    updateActivity();
     
     if (!newProjectName.trim()) {
       setCreateError('Project name is required');
@@ -159,6 +164,7 @@ export function ProjectPanel({
   };
 
   const handleCancelCreate = () => {
+    updateActivity();
     setIsCreatingProject(false);
     setNewProjectName('');
     setCreateError(null);
