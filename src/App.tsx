@@ -6,6 +6,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { RegionOverlay } from './components/RegionOverlay';
 import { ProjectPanel } from './components/ProjectPanel';
 import { ProjectNameModal } from './components/ProjectNameModal';
+import { StatusIndicator } from './components/StatusIndicator';
 import DebugControls from './components/DebugControls';
 import { useProjects } from './hooks/useProjects';
 import { invoke } from '@tauri-apps/api/core';
@@ -237,20 +238,7 @@ function App() {
 
       <header className="app-header">
         <h1>🎬 Pulse Desktop</h1>
-        <div 
-          className={`recording-status status-${recordingState.status}`}
-          role="status"
-          aria-live="polite"
-          aria-label={`Recording status: ${recordingState.status}`}
-        >
-          <span className="status-indicator" />
-          <span className="status-text">
-            {recordingState.status === 'idle' && 'Idle'}
-            {recordingState.status === 'recording' && 'Recording'}
-            {recordingState.status === 'saving' && 'Saving...'}
-            {recordingState.status === 'error' && 'Error'}
-          </span>
-        </div>
+        <StatusIndicator />
       </header>
 
       <div className="main-controls">
