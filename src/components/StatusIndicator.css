@@ -1,0 +1,173 @@
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 16px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid;
+  transition: all 0.2s ease;
+  min-width: 100px;
+  justify-content: center;
+  user-select: none;
+}
+
+.status-indicator.clickable {
+  cursor: pointer;
+}
+
+.status-indicator.clickable:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.status-indicator.disabled {
+  cursor: default;
+  opacity: 0.8;
+}
+
+/* Pre-init states */
+.status-indicator.pre-init-not-initialized {
+  background-color: #f3f4f6;
+  border-color: #d1d5db;
+  color: #6b7280;
+}
+
+.status-indicator.pre-init-not-initialized.clickable:hover {
+  background-color: #e5e7eb;
+  border-color: #9ca3af;
+  color: #4b5563;
+}
+
+.status-indicator.pre-init-initializing {
+  background-color: #fef3c7;
+  border-color: #f59e0b;
+  color: #92400e;
+}
+
+.status-indicator.pre-init-ready {
+  background-color: #d1fae5;
+  border-color: #10b981;
+  color: #065f46;
+}
+
+.status-indicator.pre-init-ready.clickable:hover {
+  background-color: #a7f3d0;
+  border-color: #059669;
+  color: #064e3b;
+}
+
+.status-indicator.pre-init-shutting-down {
+  background-color: #fee2e2;
+  border-color: #ef4444;
+  color: #991b1b;
+}
+
+/* Recording states (override pre-init when recording) */
+.status-indicator.recording-active {
+  background-color: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+  animation: recording-pulse 2s infinite;
+}
+
+.status-indicator.recording-saving {
+  background-color: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: #3b82f6;
+  animation: saving-pulse 1.5s infinite;
+}
+
+.status-indicator.recording-error {
+  background-color: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+}
+
+.status-indicator .status-icon {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Pre-init status icons */
+.status-indicator.pre-init-not-initialized .status-icon {
+  background-color: #9ca3af;
+}
+
+.status-indicator.pre-init-initializing .status-icon {
+  background-color: #f59e0b;
+  animation: pulse 2s infinite;
+}
+
+.status-indicator.pre-init-ready .status-icon {
+  background-color: #10b981;
+}
+
+.status-indicator.pre-init-shutting-down .status-icon {
+  background-color: #ef4444;
+  animation: pulse 1s infinite;
+}
+
+/* Recording status icons (override when recording) */
+.status-indicator.recording-active .status-icon {
+  background-color: #ef4444;
+  animation: pulse 1s infinite;
+}
+
+.status-indicator.recording-saving .status-icon {
+  background-color: #3b82f6;
+  animation: pulse 1.5s infinite;
+}
+
+.status-indicator.recording-error .status-icon {
+  background-color: #ef4444;
+}
+
+.status-indicator .status-text {
+  white-space: nowrap;
+}
+
+/* Loading state */
+.status-indicator.loading {
+  background-color: #f9fafb;
+  border-color: #e5e7eb;
+  color: #9ca3af;
+}
+
+.status-indicator.loading .status-icon {
+  background-color: #d1d5db;
+  animation: pulse 1.5s infinite;
+}
+
+/* Animations */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes recording-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.02);
+  }
+}
+
+@keyframes saving-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}

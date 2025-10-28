@@ -3,6 +3,7 @@
 export type CaptureMode = 'full' | 'region';
 export type AspectRatio = '16:9' | '9:16' | 'none';
 export type RecordingStatus = 'idle' | 'recording' | 'saving' | 'error';
+export type PreInitStatus = 'NotInitialized' | 'Initializing' | 'Ready' | 'ShuttingDown';
 
 export interface CaptureRegion {
   x: number;
