@@ -619,20 +619,24 @@ pub async fn get_performance_settings() -> Result<PerformanceSettings, String> {
     })
 }
 
+/// Expands a path, replacing a leading ~/ with the user's home directory.
+fn expand_home_path(path: &str) -> String {
+    if path.starts_with("~/") {
+        if let Some(home) = crate::state::dirs::home_dir() {
+            home.join(&path[2..]).to_string_lossy().to_string()
+        } else {
+            path.to_string()
+        }
+    } else {
+        path.to_string()
+    }
+}
+
 /// Open a folder in the system file explorer
 #[tauri::command]
 pub async fn open_folder(path: String) -> Result<(), String> {
     // Expand ~ to home directory
-    let expanded_path = if path.starts_with("~/") {
-        if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
-            let home_path = std::path::PathBuf::from(home);
-            home_path.join(&path[2..]).to_string_lossy().to_string()
-        } else {
-            path.clone()
-        }
-    } else {
-        path.clone()
-    };
+    let expanded_path = expand_home_path(&path);
     
     // Verify folder exists
     if !std::path::Path::new(&expanded_path).exists() {
@@ -670,16 +674,7 @@ pub async fn open_folder(path: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn open_file(path: String) -> Result<(), String> {
     // Expand ~ to home directory
-    let expanded_path = if path.starts_with("~/") {
-        if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
-            let home_path = std::path::PathBuf::from(home);
-            home_path.join(&path[2..]).to_string_lossy().to_string()
-        } else {
-            path.clone()
-        }
-    } else {
-        path.clone()
-    };
+    let expanded_path = expand_home_path(&path);
     
     // Verify file exists
     if !std::path::Path::new(&expanded_path).exists() {
@@ -1369,6 +1364,8 @@ fn estimate_duration_from_file_size(file_size: u64) -> u64 {
 }
 
 /// Add a recording entry to the current project's timeline
+/// This is the proper place for duration management - the timeline system handles
+/// all duration calculations, storage, and metadata management.
 #[tauri::command]
 pub async fn add_timeline_entry(
     filename: String,

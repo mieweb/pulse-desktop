@@ -54,7 +54,7 @@ impl AppState {
 }
 
 /// Module for directory operations
-mod dirs {
+pub mod dirs {
     use std::path::PathBuf;
 
     pub fn home_dir() -> Option<PathBuf> {

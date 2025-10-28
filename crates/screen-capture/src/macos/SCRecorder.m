@@ -306,19 +306,10 @@ API_AVAILABLE(macos(12.3))
                 weakSelf.lastError = [NSString stringWithFormat:@"Asset writer failed: %@", weakSelf.assetWriter.error];
                 result = -1;
             } else {
-                // Calculate actual media duration from the written file
-                NSURL *outputURL = [NSURL fileURLWithPath:weakSelf.outputPath];
-                AVAsset *asset = [AVAsset assetWithURL:outputURL];
-                CMTime duration = asset.duration;
-                if (CMTIME_IS_VALID(duration) && !CMTIME_IS_INDEFINITE(duration)) {
-                    weakSelf.finalDuration = CMTimeGetSeconds(duration);
-                    LOG_INFO(@"📊 Actual media duration: %.3fs", weakSelf.finalDuration);
-                } else {
-                    // Fallback to wall clock time if media duration unavailable
-                    NSTimeInterval currentTime = [NSDate timeIntervalSinceReferenceDate];
-                    weakSelf.finalDuration = currentTime - weakSelf.startTime;
-                    LOG_WARN(@"⚠️ Using wall clock duration: %.3fs (media duration unavailable)", weakSelf.finalDuration);
-                }
+                // Use wall clock time for duration - timeline system will handle duration management
+                NSTimeInterval currentTime = [NSDate timeIntervalSinceReferenceDate];
+                weakSelf.finalDuration = currentTime - weakSelf.startTime;
+                LOG_INFO(@"📊 Recording duration: %.3fs (wall clock time)", weakSelf.finalDuration);
             }
             weakSelf.isRecording = NO;
             dispatch_semaphore_signal(semaphore);
@@ -331,8 +322,7 @@ API_AVAILABLE(macos(12.3))
 
 - (double)duration {
     if (_isRecording) {
-        double currentDuration = [NSDate timeIntervalSinceReferenceDate] - _startTime;
-        return currentDuration;
+        return [NSDate timeIntervalSinceReferenceDate] - _startTime;
     } else if (_finalDuration > 0) {
         return _finalDuration;
     }
