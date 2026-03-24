@@ -6,6 +6,9 @@ use crate::fs_watcher::WatcherControl;
 #[cfg(target_os = "macos")]
 use crate::capture::macos::ScreenCapturer;
 
+#[cfg(target_os = "linux")]
+use crate::capture::linux::ScreenCapturer;
+
 #[cfg(target_os = "windows")]
 use crate::capture::windows::ScreenCapturer;
 
