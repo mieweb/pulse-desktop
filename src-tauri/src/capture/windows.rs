@@ -6,15 +6,19 @@ use log::debug;
 pub struct ScreenCapturer {
     output_path: PathBuf,
     is_recording: bool,
+    #[allow(dead_code)]
     mic_enabled: bool,
+    #[allow(dead_code)]
+    audio_device_id: Option<String>,
 }
 
 impl ScreenCapturer {
-    pub fn new(output_path: PathBuf, mic_enabled: bool) -> Self {
+    pub fn new(output_path: PathBuf, mic_enabled: bool, audio_device_id: Option<String>) -> Self {
         Self {
             output_path,
             is_recording: false,
             mic_enabled,
+            audio_device_id,
         }
     }
 
@@ -23,8 +27,15 @@ impl ScreenCapturer {
         Ok(true)
     }
 
+    /// Pre-initialize the recorder. On Windows this is a no-op stub.
+    pub async fn pre_initialize(&mut self, _region: Option<(u32, u32, u32, u32)>) -> Result<(), String> {
+        // TODO: Pre-initialize Desktop Duplication + Media Foundation pipeline
+        debug!("🚧 Windows pre_initialize stub (not yet implemented)");
+        Ok(())
+    }
+
     /// Start recording the screen
-    pub async fn start_recording(&mut self) -> Result<(), String> {
+    pub async fn start_recording(&mut self, _region: Option<(u32, u32, u32, u32)>) -> Result<(), String> {
         if self.is_recording {
             return Err("Already recording".to_string());
         }

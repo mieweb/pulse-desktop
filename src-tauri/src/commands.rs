@@ -1515,7 +1515,10 @@ fn calculate_video_duration(file_path: &std::path::Path) -> Result<u64, String> 
 #[cfg(not(target_os = "macos"))]
 fn calculate_video_duration(file_path: &std::path::Path) -> Result<u64, String> {
     // Fallback for non-macOS platforms
-    estimate_duration_from_file_size(std::fs::metadata(file_path)?.len())
+    let len = std::fs::metadata(file_path)
+        .map_err(|e| e.to_string())?
+        .len();
+    Ok(estimate_duration_from_file_size(len))
 }
 
 // Helper function to estimate duration from file size (fallback)
