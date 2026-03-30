@@ -18,8 +18,8 @@ if (await isPortOpen(DEV_HOST, DEV_PORT)) {
 
 console.log(`▶️ Starting Vite dev server on ${DEV_HOST}:${DEV_PORT}`);
 
-const command = new Deno.Command("npm", {
-  args: ["run", "dev"],
+const command = new Deno.Command("deno", {
+  args: ["task", "dev"],
   stdin: "inherit",
   stdout: "inherit",
   stderr: "inherit",
