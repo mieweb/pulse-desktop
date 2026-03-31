@@ -37,8 +37,13 @@ export default function ClipsList({
       // Get the full timeline structure
       const timeline = await invoke<{ entries: TimelineEntry[]; projectName: string; createdAt: string; lastModified: string; metadata: any }>('get_project_timeline', { projectName });
       
-      // Update with new clips
-      timeline.entries = updatedClips;
+      // Preserve entries from the backend that aren't in updatedClips (e.g. soft-deleted
+      // clips from previous sessions that were filtered out of the clips state on load).
+      // Without this, saving would silently drop them and reconcile would re-add them as orphans.
+      const updatedIds = new Set(updatedClips.map(c => c.id));
+      const preservedEntries = timeline.entries.filter(e => !updatedIds.has(e.id));
+
+      timeline.entries = [...updatedClips, ...preservedEntries];
       
       await invoke('save_project_timeline', { 
         projectName, 

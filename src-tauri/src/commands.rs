@@ -855,6 +855,10 @@ pub struct TimelineEntry {
     pub notes: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub checksum: Option<String>, // SHA256 hash for file integrity and rename detection
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deleted: Option<bool>, // soft delete flag
+    #[serde(rename = "deletedAt", alias = "deleted_at", skip_serializing_if = "Option::is_none")]
+    pub deleted_at: Option<String>, // when it was soft-deleted
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1431,6 +1435,8 @@ pub async fn reconcile_project_timeline(project_name: String, state: State<'_, A
                 duration_ms,
                 aspect_ratio,
                 resolution: Resolution { width, height },
+                deleted: None,
+                deleted_at: None,
                 mic_enabled: true,
                 notes: Some("Added during timeline reconciliation".to_string()),
                 checksum: Some(checksum.clone()),
@@ -1592,6 +1598,8 @@ pub async fn add_timeline_entry(
         duration_ms,
         aspect_ratio,
         resolution: Resolution { width, height },
+        deleted: None,
+        deleted_at: None,
         mic_enabled,
         notes: None,
         checksum,
