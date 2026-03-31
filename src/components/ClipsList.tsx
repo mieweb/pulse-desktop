@@ -37,8 +37,13 @@ export default function ClipsList({
       // Get the full timeline structure
       const timeline = await invoke<{ entries: TimelineEntry[]; projectName: string; createdAt: string; lastModified: string; metadata: any }>('get_project_timeline', { projectName });
       
-      // Update with new clips
-      timeline.entries = updatedClips;
+      // Preserve entries from the backend that aren't in updatedClips (e.g. soft-deleted
+      // clips from previous sessions that were filtered out of the clips state on load).
+      // Without this, saving would silently drop them and reconcile would re-add them as orphans.
+      const updatedIds = new Set(updatedClips.map(c => c.id));
+      const preservedEntries = timeline.entries.filter(e => !updatedIds.has(e.id));
+
+      timeline.entries = [...updatedClips, ...preservedEntries];
       
       await invoke('save_project_timeline', { 
         projectName, 
@@ -66,7 +71,6 @@ export default function ClipsList({
           new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime()
         );
         setClips(sorted, false); // false = don't create undo checkpoint for initial load
-        onClipsUpdate?.(sorted.length);
       } catch (err) {
         console.error('Failed to load clips:', err);
         setClips([], false);
@@ -76,7 +80,8 @@ export default function ClipsList({
     };
 
     loadClips();
-  }, [projectName, onClipsUpdate]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectName]);
 
   // Mouse-based drag and drop handlers (fallback for WebKit drag-drop issues)
   const handleMouseDown = (e: React.MouseEvent, clipId: string) => {

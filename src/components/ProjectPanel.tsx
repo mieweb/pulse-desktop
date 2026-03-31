@@ -301,6 +301,7 @@ export function ProjectPanel({
         outputFolder={outputFolder}
         debugDragDrop={debugDragDrop}
         debugAriaFocus={debugAriaFocus}
+        onClipsUpdate={refreshProjects}
       />
     </div>
   );

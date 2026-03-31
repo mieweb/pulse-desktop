@@ -833,8 +833,11 @@ pub async fn close_region_selector(app: AppHandle) -> Result<(), String> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Project {
     pub name: String,
+    #[serde(rename = "createdAt", alias = "created_at")]
     pub created_at: String,
+    #[serde(rename = "videoCount", alias = "video_count")]
     pub video_count: u32,
+    #[serde(rename = "lastModified", alias = "last_modified")]
     pub last_modified: String,
 }
 
@@ -852,6 +855,10 @@ pub struct TimelineEntry {
     pub notes: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub checksum: Option<String>, // SHA256 hash for file integrity and rename detection
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deleted: Option<bool>, // soft delete flag
+    #[serde(rename = "deletedAt", alias = "deleted_at", skip_serializing_if = "Option::is_none")]
+    pub deleted_at: Option<String>, // when it was soft-deleted
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -933,11 +940,13 @@ pub async fn get_projects(state: State<'_, AppState>) -> Result<Vec<Project>, St
                         debug!("📖 Read timeline content ({} bytes) for {}", content.len(), project_name);
                         match serde_json::from_str::<ProjectTimeline>(&content) {
                             Ok(timeline) => {
-                                debug!("✅ Parsed timeline for {} ({} videos)", project_name, timeline.metadata.total_videos);
+                                // Count only non-deleted entries so the badge stays accurate after soft deletes
+                                let active_count = timeline.entries.iter().filter(|e| e.deleted != Some(true)).count() as u32;
+                                debug!("✅ Parsed timeline for {} ({} active videos)", project_name, active_count);
                                 projects.push(Project {
                                     name: project_name,
                                     created_at: timeline.created_at,
-                                    video_count: timeline.metadata.total_videos,
+                                    video_count: active_count,
                                     last_modified: timeline.last_modified,
                                 });
                             }
@@ -1428,6 +1437,8 @@ pub async fn reconcile_project_timeline(project_name: String, state: State<'_, A
                 duration_ms,
                 aspect_ratio,
                 resolution: Resolution { width, height },
+                deleted: None,
+                deleted_at: None,
                 mic_enabled: true,
                 notes: Some("Added during timeline reconciliation".to_string()),
                 checksum: Some(checksum.clone()),
@@ -1589,6 +1600,8 @@ pub async fn add_timeline_entry(
         duration_ms,
         aspect_ratio,
         resolution: Resolution { width, height },
+        deleted: None,
+        deleted_at: None,
         mic_enabled,
         notes: None,
         checksum,
