@@ -1,14 +1,6 @@
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CaptureRegion {
-    pub x: i32,
-    pub y: i32,
-    pub width: u32,
-    pub height: u32,
-}
-
 #[derive(Debug, Clone, Serialize)]
 pub struct ClipSavedEvent {
     pub path: String,

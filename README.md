@@ -35,6 +35,23 @@ Push-to-hold screen capture with the simplicity of a walkie-talkie. Press `Cmd+S
   - Download from [ffmpeg.org](https://ffmpeg.org/download.html)
   - Add to PATH
 
+### Linux
+* Modern Debian Based Distro
+* System Dependencies:
+```sh
+sudo apt update
+sudo apt install libwebkit2gtk-4.1-dev \
+  build-essential \
+  curl \
+  wget \
+  file \
+  libxdo-dev \
+  libssl-dev \
+  libayatana-appindicator3-dev \
+  librsvg2-dev \
+  ffmpeg
+```
+
 ## Quick Start
 
 ### Prerequisites

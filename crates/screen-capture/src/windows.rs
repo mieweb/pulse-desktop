@@ -3,7 +3,7 @@
 // This uses modern Windows APIs for efficient screen capture
 // directly to MP4 with hardware encoding.
 
-use crate::{RecordingConfig, CaptureRegion};
+use crate::RecordingConfig;
 use std::path::PathBuf;
 use log::info;
 
@@ -43,15 +43,17 @@ impl NativeRecorder {
         Ok(())
     }
     
-    pub fn stop(&mut self) -> Result<(), String> {
+    pub fn stop(&mut self) -> Result<(PathBuf, f64), String> {
         // TODO: Stop capture and finalize video
         // 1. Stop capture loop
         // 2. Finalize Media Foundation sink writer
         // 3. Close file
         
+        let duration = self.duration();
         info!("⏹️  Recording stopped (native Windows - stub)");
         self.start_time = None;
-        Ok(())
+        let path = self.config.output_path.clone();
+        Ok((path, duration))
     }
     
     pub fn duration(&self) -> f64 {

@@ -3,7 +3,6 @@
   "specifiers": {
     "npm:@tauri-apps/api@2": "2.8.0",
     "npm:@tauri-apps/cli@2": "2.5.0",
-    "npm:@tauri-apps/plugin-dialog@2": "2.4.0",
     "npm:@tauri-apps/plugin-opener@2": "2.5.0",
     "npm:@types/react-dom@^19.1.6": "19.2.1_@types+react@19.2.2",
     "npm:@types/react@^19.1.8": "19.2.2",
@@ -788,9 +787,9 @@
   "workspace": {
     "packageJson": {
       "dependencies": [
-        "npm:@tauri-apps/api@^2.9.0",
+        "npm:@tauri-apps/api@^2.10.0",
         "npm:@tauri-apps/cli@2",
-        "npm:@tauri-apps/plugin-dialog@2",
+        "npm:@tauri-apps/plugin-dialog@^2.6.0",
         "npm:@tauri-apps/plugin-opener@2",
         "npm:@types/react-dom@^19.1.6",
         "npm:@types/react@^19.1.8",

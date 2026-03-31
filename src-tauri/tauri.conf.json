@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.horner.pulse-desktop",
   "build": {
-    "beforeDevCommand": "deno task dev",
+    "beforeDevCommand": "deno run -A ./scripts/tauri-dev-server.ts",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "deno task build",
     "frontendDist": "../dist"
