@@ -940,11 +940,13 @@ pub async fn get_projects(state: State<'_, AppState>) -> Result<Vec<Project>, St
                         debug!("📖 Read timeline content ({} bytes) for {}", content.len(), project_name);
                         match serde_json::from_str::<ProjectTimeline>(&content) {
                             Ok(timeline) => {
-                                debug!("✅ Parsed timeline for {} ({} videos)", project_name, timeline.metadata.total_videos);
+                                // Count only non-deleted entries so the badge stays accurate after soft deletes
+                                let active_count = timeline.entries.iter().filter(|e| e.deleted != Some(true)).count() as u32;
+                                debug!("✅ Parsed timeline for {} ({} active videos)", project_name, active_count);
                                 projects.push(Project {
                                     name: project_name,
                                     created_at: timeline.created_at,
-                                    video_count: timeline.metadata.total_videos,
+                                    video_count: active_count,
                                     last_modified: timeline.last_modified,
                                 });
                             }

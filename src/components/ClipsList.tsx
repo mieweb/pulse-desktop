@@ -71,7 +71,6 @@ export default function ClipsList({
           new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime()
         );
         setClips(sorted, false); // false = don't create undo checkpoint for initial load
-        onClipsUpdate?.(sorted.length);
       } catch (err) {
         console.error('Failed to load clips:', err);
         setClips([], false);
@@ -81,7 +80,8 @@ export default function ClipsList({
     };
 
     loadClips();
-  }, [projectName, onClipsUpdate]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectName]);
 
   // Mouse-based drag and drop handlers (fallback for WebKit drag-drop issues)
   const handleMouseDown = (e: React.MouseEvent, clipId: string) => {
