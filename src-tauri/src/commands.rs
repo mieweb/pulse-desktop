@@ -833,8 +833,11 @@ pub async fn close_region_selector(app: AppHandle) -> Result<(), String> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Project {
     pub name: String,
+    #[serde(rename = "createdAt", alias = "created_at")]
     pub created_at: String,
+    #[serde(rename = "videoCount", alias = "video_count")]
     pub video_count: u32,
+    #[serde(rename = "lastModified", alias = "last_modified")]
     pub last_modified: String,
 }
 
